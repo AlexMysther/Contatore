@@ -5,13 +5,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
 
-const API_URL = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev/api/chores';
-const POLL_MS = 5000;
+const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev';
+const API_URL  = `${API_BASE}/api/chores`;
+const POLL_MS  = 5000;
 
 type SottoTask = { titolo: string; descrizione?: string; completato: boolean };
 
@@ -36,23 +38,31 @@ function mergeRemote(remote: Omit<Chore, '_expanded'>[], local: Chore[]): Chore[
 
 export default function Chiusura() {
   const { user } = useAuth();
-  const [started, setStarted] = useState(false);
+  const canEdit = user?.permessi?.includes('chiusura') ?? false;
+  const [avviata, setAvviata] = useState(false);
   const [chores, setChores]   = useState<Chore[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const pollRef               = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statoRef              = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${user?.token ?? ''}`,
   });
 
+  const fetchStato = () =>
+    fetch(`${API_BASE}/api/chiusura/stato`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then((data: { avviata: boolean }) => setAvviata(data.avviata))
+      .catch(() => {});
+
   const fetchChores = (isFirstLoad = false) => {
     fetch(API_URL, { headers: authHeaders() })
       .then(r => r.json())
       .then((data: Omit<Chore, '_expanded'>[]) => {
-        setChores(prev => mergeRemote(data, prev));
+        setChores(prev => mergeRemote(Array.isArray(data) ? data : [], prev));
         if (isFirstLoad) setLoading(false);
         setError(null);
       })
@@ -61,13 +71,26 @@ export default function Chiusura() {
       });
   };
 
+  // Poll stato chiusura per tutti
   useEffect(() => {
-    if (!started || !user?.token) return;
+    if (!user?.token) return;
+    fetchStato();
+    statoRef.current = setInterval(fetchStato, POLL_MS);
+    return () => { if (statoRef.current) clearInterval(statoRef.current); };
+  }, [user?.token]);
+
+  // Carica chores solo quando avviata
+  useEffect(() => {
+    if (!avviata || !user?.token) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      if (!avviata) setChores([]);
+      return;
+    }
     setLoading(true);
     fetchChores(true);
     pollRef.current = setInterval(() => fetchChores(false), POLL_MS);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [started]);
+  }, [avviata, user?.token]);
 
   const patchChore = (id: string, body: object) =>
     fetch(`${API_URL}/${id}`, {
@@ -142,31 +165,43 @@ export default function Chiusura() {
     setChores(prev => prev.map(c => c._id === id ? { ...c, _expanded: !c._expanded } : c));
   };
 
+  const avvia = () => {
+    fetch(`${API_BASE}/api/chiusura/avvia`, { method: 'POST', headers: authHeaders() })
+      .then(() => setAvviata(true))
+      .catch(() => {});
+  };
+
   const reset = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     chores.forEach(c => {
       const sotto_task = c.sotto_task?.map(st => ({ ...st, completato: false }));
       patchChore(c._id, { completato: false, ...(sotto_task ? { sotto_task } : {}) });
     });
-    setChores(prev => prev.map(c => ({
-      ...c,
-      completato: false,
-      _expanded: false,
-      sotto_task: c.sotto_task?.map(st => ({ ...st, completato: false })),
-    })));
-    setStarted(false);
+    setChores([]);
+    fetch(`${API_BASE}/api/chiusura/reset`, { method: 'POST', headers: authHeaders() })
+      .then(() => setAvviata(false))
+      .catch(() => {});
   };
 
-  // ── Start screen ──────────────────────────────────────────────────────────
-  if (!started) {
+  // ── Chiusura non ancora avviata ───────────────────────────────────────────
+  if (!avviata) {
+    if (canEdit) {
+      return (
+        <SafeAreaView style={[s.container, s.center]}>
+          <Text style={s.startIcon}>🔒</Text>
+          <Text style={s.startTitle}>Chiusura</Text>
+          <Text style={s.startSubtitle}>Avvia la procedura di chiusura del locale.</Text>
+          <TouchableOpacity style={s.startBtn} onPress={avvia}>
+            <Text style={s.startBtnLabel}>Avvia Chiusura</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={[s.container, s.center]}>
-        <Text style={s.startIcon}>🔒</Text>
-        <Text style={s.startTitle}>Chiusura</Text>
-        <Text style={s.startSubtitle}>Avvia la procedura di chiusura del locale.</Text>
-        <TouchableOpacity style={s.startBtn} onPress={() => setStarted(true)}>
-          <Text style={s.startBtnLabel}>Avvia Chiusura</Text>
-        </TouchableOpacity>
+        <Text style={s.startIcon}>⏳</Text>
+        <Text style={s.startTitle}>In attesa</Text>
+        <Text style={s.startSubtitle}>La chiusura non è ancora stata avviata.{'\n'}Attendi che un amministratore la avvii.</Text>
       </SafeAreaView>
     );
   }
@@ -237,10 +272,15 @@ export default function Chiusura() {
 
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.title}>Chiusura</Text>
-        <TouchableOpacity onPress={reset}>
-          <Text style={s.resetLink}>Annulla</Text>
-        </TouchableOpacity>
+        <View style={s.titleRow}>
+          <IconSymbol name="lock.fill" size={24} color={RED} />
+          <Text style={s.title}>Chiusura</Text>
+        </View>
+        {canEdit && (
+          <TouchableOpacity onPress={reset}>
+            <Text style={s.resetLink}>Annulla</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Barra progresso */}
@@ -340,9 +380,11 @@ const s = StyleSheet.create({
   startBtn:      { marginTop: 8, backgroundColor: RED, paddingHorizontal: 40, paddingVertical: 16, borderRadius: 14 },
   startBtnLabel: { color: '#fff', fontWeight: '700', fontSize: 17 },
 
-  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
+  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
+  titleRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title:         { fontSize: 28, fontWeight: '700', color: '#1a1a1a' },
   resetLink:     { fontSize: 14, color: RED },
+  readOnlyBadge: { fontSize: 14, color: '#aaa', fontWeight: '400' },
 
   progressWrap:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 10, marginBottom: 14 },
   progressBg:    { flex: 1, height: 8, backgroundColor: '#ddd', borderRadius: 4, overflow: 'hidden' },

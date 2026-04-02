@@ -51,6 +51,48 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ── GET /api/chiusura/stato ──────────────────────────────────────────────────
+app.get('/api/chiusura/stato', auth, async (req, res) => {
+  try {
+    const doc = await db.collection('settings').findOne({ _id: 'chiusura' });
+    res.json({ avviata: doc?.avviata ?? false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/chiusura/avvia ─────────────────────────────────────────────────
+app.post('/api/chiusura/avvia', auth, async (req, res) => {
+  if (!req.user.permessi?.includes('chiusura'))
+    return res.status(403).json({ error: 'Non autorizzato' });
+  try {
+    await db.collection('settings').updateOne(
+      { _id: 'chiusura' },
+      { $set: { avviata: true } },
+      { upsert: true }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/chiusura/reset ─────────────────────────────────────────────────
+app.post('/api/chiusura/reset', auth, async (req, res) => {
+  if (!req.user.permessi?.includes('chiusura'))
+    return res.status(403).json({ error: 'Non autorizzato' });
+  try {
+    await db.collection('settings').updateOne(
+      { _id: 'chiusura' },
+      { $set: { avviata: false } },
+      { upsert: true }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/chores ──────────────────────────────────────────────────────────
 app.get('/api/chores', auth, async (req, res) => {
   try {

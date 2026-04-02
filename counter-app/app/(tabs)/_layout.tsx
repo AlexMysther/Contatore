@@ -10,8 +10,6 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { user } = useAuth();
-  const canChiusura = user?.permessi?.includes('chiusura') ?? false;
-
   return (
     <Tabs
       screenOptions={{
@@ -31,8 +29,7 @@ export default function TabLayout() {
         name="chiusura"
         options={{
           title: 'Chiusura',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark.seal.fill" color={color} />,
-          href: canChiusura ? undefined : null,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="lock.fill" color={color} />,
         }}
       />
     </Tabs>

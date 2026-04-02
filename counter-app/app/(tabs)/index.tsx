@@ -46,9 +46,13 @@ export default function App() {
 
   const fetchItems = (isFirst = false) => {
     fetch(API_URL, { headers: headers() })
-      .then(r => r.json())
-      .then((data: Item[]) => {
-        setItems(data);
+      .then(r => {
+        if (r.status === 401) { logout(); return null; }
+        return r.json();
+      })
+      .then((data: Item[] | null) => {
+        if (data === null) return;
+        setItems(Array.isArray(data) ? data : []);
         if (isFirst) setLoading(false);
       })
       .catch(() => { if (isFirst) setLoading(false); });
