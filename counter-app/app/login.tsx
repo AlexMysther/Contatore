@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
+
+const LOGO = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
 
 export default function Login() {
   const { login } = useAuth();
@@ -30,7 +32,7 @@ export default function Login() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={s.card}>
-        <Text style={s.logo}>🍕</Text>
+        <Image source={LOGO} style={s.logo} resizeMode="contain" />
         <Text style={s.title}>Pizzium Tunisia</Text>
         <Text style={s.subtitle}>Accedi per continuare</Text>
 
@@ -77,7 +79,7 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f2f2f2', justifyContent: 'center', alignItems: 'center' },
   card:      { backgroundColor: '#fff', borderRadius: 20, padding: 32, width: '90%', maxWidth: 380, alignItems: 'center', elevation: 4 },
 
-  logo:     { fontSize: 56 },
+  logo:     { width: 400, height: 200 },
   title:    { fontSize: 24, fontWeight: '800', color: '#1a1a1a', marginTop: 8 },
   subtitle: { fontSize: 14, color: '#888', marginBottom: 28 },
 

@@ -20,6 +20,7 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'lock.fill': 'lock',
   'checkmark.seal.fill': 'verified',
+  'exclamationmark.bubble.fill': 'error',
 } as IconMapping;
 
 /**

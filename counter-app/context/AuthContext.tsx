@@ -5,6 +5,7 @@ const AUTH_KEY = '@auth_token';
 const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev';
 
 type User = {
+  id: string;
   nome: string;
   ruolo: string;
   permessi: string[];
@@ -44,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return data.error ?? 'Errore di login';
-      const u: User = { nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
+      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;

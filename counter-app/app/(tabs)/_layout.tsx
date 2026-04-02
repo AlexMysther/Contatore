@@ -26,6 +26,14 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
+        name="segnalazioni"
+        options={{
+          title: 'Segnalazioni',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="exclamationmark.bubble.fill" color={color} />,
+        }}
+      />
+
+      <Tabs.Screen
         name="chiusura"
         options={{
           title: 'Chiusura',

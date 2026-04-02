@@ -15,6 +15,17 @@ async function connect() {
   await client.connect();
   db = client.db(process.env.DB_NAME || 'contatore');
   console.log('Connesso a MongoDB');
+  const count = await db.collection('categorie').countDocuments();
+  if (count === 0) {
+    await db.collection('categorie').insertMany([
+      { nome: 'Tavolo',        order: 1 },
+      { nome: 'Cucina',        order: 2 },
+      { nome: 'Magazzino',     order: 3 },
+      { nome: 'Pulizie',       order: 4 },
+      { nome: 'Personalizzata', order: 99 },
+    ]);
+    console.log('Categorie inizializzate');
+  }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_changeme';
@@ -45,7 +56,7 @@ app.post('/api/auth/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '12h' }
     );
-    res.json({ token, nome: account.nome, ruolo: account.ruolo, permessi: account.permessi });
+    res.json({ token, id: String(account._id), nome: account.nome, ruolo: account.ruolo, permessi: account.permessi });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -154,6 +165,82 @@ app.patch('/api/prodotti/:id', auth, async (req, res) => {
 app.delete('/api/prodotti/:id', auth, async (req, res) => {
   try {
     await db.collection('prodotti').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/categorie ───────────────────────────────────────────────────────
+app.get('/api/categorie', auth, async (req, res) => {
+  try {
+    const cats = await db.collection('categorie').find().sort({ order: 1 }).toArray();
+    res.json(cats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/segnalazioni ────────────────────────────────────────────────────
+app.get('/api/segnalazioni', auth, async (req, res) => {
+  try {
+    const list = await db.collection('segnalazioni')
+      .find({ stato: { $ne: 'chiusa' } })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/segnalazioni ───────────────────────────────────────────────────
+app.post('/api/segnalazioni', auth, async (req, res) => {
+  try {
+    const { categoria, testo } = req.body;
+    const doc = {
+      categoria,
+      testo,
+      autoreId: String(req.user.id),
+      autoreNome: req.user.nome,
+      stato: 'aperta',
+      createdAt: new Date(),
+    };
+    const result = await db.collection('segnalazioni').insertOne(doc);
+    res.json({ _id: result.insertedId, ...doc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/segnalazioni/:id/risolvi ─────────────────────────────────────
+app.patch('/api/segnalazioni/:id/risolvi', auth, async (req, res) => {
+  if (req.user.ruolo !== 'admin')
+    return res.status(403).json({ error: 'Solo admin può risolvere' });
+  try {
+    await db.collection('segnalazioni').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { stato: 'risolta', risoltaAt: new Date() } }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/segnalazioni/:id/chiudi ──────────────────────────────────────
+app.patch('/api/segnalazioni/:id/chiudi', auth, async (req, res) => {
+  try {
+    const seg = await db.collection('segnalazioni').findOne({ _id: new ObjectId(req.params.id) });
+    if (!seg) return res.status(404).json({ error: 'Non trovata' });
+    if (seg.autoreId !== String(req.user.id))
+      return res.status(403).json({ error: 'Solo il creatore può chiudere' });
+    if (seg.stato !== 'risolta')
+      return res.status(400).json({ error: 'Puoi chiudere solo segnalazioni risolte' });
+    await db.collection('segnalazioni').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { stato: 'chiusa', chiusaAt: new Date() } }
+    );
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
