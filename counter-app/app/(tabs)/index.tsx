@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, SafeAreaView, Modal, Pressable,
-  KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator, Alert,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 
 const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
@@ -25,7 +26,7 @@ type Pending = Record<string, number | 'delete'>;
 type Confirm = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
 
 export default function App() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateAvatar } = useAuth();
   const token = user?.token ?? '';
 
   const [items, setItems]           = useState<Item[]>([]);
@@ -38,6 +39,15 @@ export default function App() {
   const [inputQty, setInputQty]     = useState('');
   const [addError, setAddError]     = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permesso negato', 'Serve accesso alla galleria.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 });
+    if (result.canceled) return;
+    const err = await updateAvatar(result.assets[0].uri);
+    if (err) Alert.alert('Errore', err);
+  };
 
   const headers = () => ({
     'Content-Type': 'application/json',
@@ -166,9 +176,17 @@ export default function App() {
 
       <Image source={BANNER_IMAGE} style={s.banner} resizeMode="cover" />
       <View style={s.titleRow}>
-        <View>
-          <Text style={s.title}>Contatore Prodotti</Text>
-          {user && <Text style={s.userLabel}>👤 {user.nome}</Text>}
+        <View style={s.titleLeft}>
+          <TouchableOpacity onPress={pickAvatar}>
+            {user?.avatarUrl
+              ? <Image source={{ uri: user.avatarUrl }} style={s.avatar} />
+              : <View style={s.avatarPlaceholder}><Text style={s.avatarInitial}>{user?.nome?.[0]?.toUpperCase() ?? '?'}</Text></View>
+            }
+          </TouchableOpacity>
+          <View>
+            <Text style={s.title}>Contatore Prodotti</Text>
+            {user && <Text style={s.userLabel}>{user.nome}</Text>}
+          </View>
         </View>
         <TouchableOpacity style={s.logoutBtn} onPress={logout}>
           <Text style={s.logoutText}>Esci</Text>
@@ -325,6 +343,10 @@ const s = StyleSheet.create({
   center:       { justifyContent: 'center', alignItems: 'center' },
   banner:       { width: '100%', height: 180 },
   titleRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
+  titleLeft:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar:       { width: 44, height: 44, borderRadius: 22 },
+  avatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#c0392b', alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: '#fff', fontSize: 18, fontWeight: '700' },
   title:        { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
   userLabel:    { fontSize: 12, color: '#888', marginTop: 2 },
   logoutBtn:    { backgroundColor: '#f0f0f0', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },

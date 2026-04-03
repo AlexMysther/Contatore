@@ -18,9 +18,7 @@ export default function Welcome() {
   }, []);
 
   const roleLabel = user?.ruolo === 'admin' ? 'Amministratore' : 'Staff';
-  let foto = FOTO_DEFAULT;
-  if (user?.nome === 'Carlo')  foto = require('@/assets/custom/Carlo.jpg');
-  if (user?.nome === 'Giulia') foto = require('@/assets/custom/Giulia.jpg');
+  const foto = user?.avatarUrl ? { uri: user.avatarUrl } : FOTO_DEFAULT;
 
   return (
     <View style={s.container}>

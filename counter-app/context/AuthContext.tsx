@@ -10,6 +10,7 @@ type User = {
   ruolo: string;
   permessi: string[];
   token: string;
+  avatarUrl?: string;
 };
 
 type AuthCtx = {
@@ -17,12 +18,14 @@ type AuthCtx = {
   loading: boolean;
   login: (username: string, password: string) => Promise<string | null>;
   logout: () => void;
+  updateAvatar: (uri: string) => Promise<string | null>;
 };
 
 const AuthContext = createContext<AuthCtx>({
   user: null, loading: true,
   login: async () => null,
   logout: () => {},
+  updateAvatar: async () => null,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -45,7 +48,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return data.error ?? 'Errore di login';
-      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
+
+      // Fetch avatarUrl from /api/utenti/me
+      let avatarUrl: string | undefined;
+      try {
+        const meRes = await fetch(`${API_BASE}/api/utenti/me`, {
+          headers: { Authorization: `Bearer ${data.token}` },
+        });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          avatarUrl = me.avatarUrl;
+        }
+      } catch {}
+
+      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token, avatarUrl };
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;
@@ -59,8 +75,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const updateAvatar = async (uri: string): Promise<string | null> => {
+    if (!user) return 'Non autenticato';
+    try {
+      const formData = new FormData();
+      formData.append('avatar', { uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
+      const res = await fetch(`${API_BASE}/api/utenti/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error ?? 'Errore upload';
+      const updated = { ...user, avatarUrl: data.avatarUrl };
+      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(updated));
+      setUser(updated);
+      return null;
+    } catch {
+      return 'Impossibile raggiungere il server';
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateAvatar }}>
       {children}
     </AuthContext.Provider>
   );

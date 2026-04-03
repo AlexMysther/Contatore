@@ -3,6 +3,16 @@ const express    = require('express');
 const cors       = require('cors');
 const jwt        = require('jsonwebtoken');
 const { MongoClient, ObjectId } = require('mongodb');
+const cloudinary = require('cloudinary').v2;
+const multer     = require('multer');
+
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key:    process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const app = express();
 app.use(cors());
@@ -242,6 +252,40 @@ app.patch('/api/segnalazioni/:id/chiudi', auth, async (req, res) => {
       { $set: { stato: 'chiusa', chiusaAt: new Date() } }
     );
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/utenti/me ───────────────────────────────────────────────────────
+app.get('/api/utenti/me', auth, async (req, res) => {
+  try {
+    const account = await db.collection('accounts').findOne(
+      { _id: new ObjectId(req.user.id) },
+      { projection: { password: 0 } }
+    );
+    if (!account) return res.status(404).json({ error: 'Utente non trovato' });
+    res.json(account);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/utenti/avatar ──────────────────────────────────────────────────
+app.post('/api/utenti/avatar', auth, upload.single('avatar'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nessun file ricevuto' });
+  try {
+    const result = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'avatars', public_id: `user_${req.user.id}`, overwrite: true, transformation: [{ width: 300, height: 300, crop: 'fill', gravity: 'face' }] },
+        (err, result) => err ? reject(err) : resolve(result)
+      ).end(req.file.buffer);
+    });
+    await db.collection('accounts').updateOne(
+      { _id: new ObjectId(req.user.id) },
+      { $set: { avatarUrl: result.secure_url } }
+    );
+    res.json({ avatarUrl: result.secure_url });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
