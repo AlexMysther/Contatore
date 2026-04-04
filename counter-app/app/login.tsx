@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
+import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 
 const LOGO = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
@@ -67,6 +68,10 @@ export default function Login() {
               : <Text style={s.btnLabel}>Accedi</Text>
             }
           </TouchableOpacity>
+
+          <TouchableOpacity style={s.link} onPress={() => router.replace('/register')}>
+            <Text style={s.linkText}>Non hai un account? <Text style={s.linkBold}>Registrati</Text></Text>
+          </TouchableOpacity>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -96,4 +101,8 @@ const s = StyleSheet.create({
 
   btn:      { marginTop: 8, backgroundColor: RED, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   btnLabel: { color: '#fff', fontWeight: '700', fontSize: 16 },
+
+  link:     { marginTop: 16, alignItems: 'center' },
+  linkText: { fontSize: 14, color: '#888' },
+  linkBold: { color: RED, fontWeight: '700' },
 });

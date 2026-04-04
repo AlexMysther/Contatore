@@ -24,7 +24,7 @@ export default function Welcome() {
     <View style={s.container}>
       <Animated.View style={[s.card, { opacity }]}>
         <Image source={foto} style={s.avatar} />
-        <Text style={s.benvenuto}>Ciao, {user?.nome}!</Text>
+        <Text style={s.benvenuto}>Ciao, {user?.nome?.split(' ')[0]}!</Text>
         <View style={s.badge}>
           <Text style={s.badgeText}>{roleLabel}</Text>
         </View>

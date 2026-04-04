@@ -15,7 +15,13 @@ cloudinary.config({
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
 app.use(express.json());
 
 const client = new MongoClient(process.env.MONGODB_URI);
@@ -67,6 +73,38 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '12h' }
     );
     res.json({ token, id: String(account._id), nome: account.nome, ruolo: account.ruolo, permessi: account.permessi });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/auth/register ──────────────────────────────────────────────────
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, nome, cognome } = req.body;
+    if (!username || !password || !nome || !cognome)
+      return res.status(400).json({ error: 'username, password, nome e cognome sono obbligatori' });
+
+    const existing = await db.collection('accounts').findOne({ username });
+    if (existing) return res.status(409).json({ error: 'Username già in uso' });
+
+    const result = await db.collection('accounts').insertOne({
+      username,
+      password,
+      nome,
+      cognome,
+      ruolo: 'staff',
+      permessi: [],
+      attivo: true,
+      createdAt: new Date(),
+    });
+
+    const token = jwt.sign(
+      { id: result.insertedId, username, ruolo: 'staff', permessi: [], nome },
+      JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+    res.status(201).json({ token, id: String(result.insertedId), nome, ruolo: 'dipendente', permessi: [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -225,8 +263,12 @@ app.post('/api/segnalazioni', auth, async (req, res) => {
 
 // ── PATCH /api/segnalazioni/:id/risolvi ─────────────────────────────────────
 app.patch('/api/segnalazioni/:id/risolvi', auth, async (req, res) => {
-  if (req.user.ruolo !== 'admin')
-    return res.status(403).json({ error: 'Solo admin può risolvere' });
+  const seg = await db.collection('segnalazioni').findOne({ _id: new ObjectId(req.params.id) });
+  if (!seg) return res.status(404).json({ error: 'Non trovata' });
+  const isAdmin   = req.user.ruolo === 'admin';
+  const isCreator = seg.autoreId === String(req.user.id);
+  if (!isAdmin && !isCreator)
+    return res.status(403).json({ error: 'Solo il creatore o un admin può risolvere' });
   try {
     await db.collection('segnalazioni').updateOne(
       { _id: new ObjectId(req.params.id) },
@@ -243,14 +285,13 @@ app.patch('/api/segnalazioni/:id/chiudi', auth, async (req, res) => {
   try {
     const seg = await db.collection('segnalazioni').findOne({ _id: new ObjectId(req.params.id) });
     if (!seg) return res.status(404).json({ error: 'Non trovata' });
-    if (seg.autoreId !== String(req.user.id))
-      return res.status(403).json({ error: 'Solo il creatore può chiudere' });
+    const isAdmin   = req.user.ruolo === 'admin';
+    const isCreator = seg.autoreId === String(req.user.id);
+    if (!isAdmin && !isCreator)
+      return res.status(403).json({ error: 'Solo il creatore o un admin può chiudere' });
     if (seg.stato !== 'risolta')
       return res.status(400).json({ error: 'Puoi chiudere solo segnalazioni risolte' });
-    await db.collection('segnalazioni').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { stato: 'chiusa', chiusaAt: new Date() } }
-    );
+    await db.collection('segnalazioni').deleteOne({ _id: new ObjectId(req.params.id) });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

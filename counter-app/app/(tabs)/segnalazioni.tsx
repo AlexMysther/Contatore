@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, StyleSheet,
-  SafeAreaView, Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+  SafeAreaView, Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Pressable,
 } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 
 const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev/api';
 const POLL_MS  = 5000;
 
+type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
 type Categoria    = { _id: string; nome: string; order: number };
 type Segnalazione = {
   _id: string;
@@ -28,6 +29,8 @@ export default function SegnalazioniScreen() {
   const [categorie, setCategorie] = useState<Categoria[]>([]);
   const [loading, setLoading]     = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [confirm, setConfirm]           = useState<Confirm>(null);
+  const confirmData                     = useRef<Confirm>(null);
   const [selectedCat, setSelectedCat]   = useState<string | null>(null);
   const [testo, setTesto]         = useState('');
   const [error, setError]         = useState<string | null>(null);
@@ -80,14 +83,34 @@ export default function SegnalazioniScreen() {
       });
   };
 
+  const showConfirm = (data: NonNullable<Confirm>) => {
+    confirmData.current = data;
+    setConfirm(data);
+  };
+
+  const hideConfirm = () => setConfirm(null);
+
   const risolvi = (id: string) => {
-    fetch(`${API_BASE}/segnalazioni/${id}/risolvi`, { method: 'PATCH', headers: headers() })
-      .then(() => setList(prev => prev.map(s => s._id === id ? { ...s, stato: 'risolta' } : s)));
+    showConfirm({
+      title: 'Segna come risolta',
+      message: 'Vuoi segnare questa segnalazione come risolta?',
+      confirmLabel: 'Risolvi',
+      onConfirm: () =>
+        fetch(`${API_BASE}/segnalazioni/${id}/risolvi`, { method: 'PATCH', headers: headers() })
+          .then(() => setList(prev => prev.map(s => s._id === id ? { ...s, stato: 'risolta' } : s))),
+    });
   };
 
   const chiudi = (id: string) => {
-    fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() })
-      .then(() => setList(prev => prev.filter(s => s._id !== id)));
+    showConfirm({
+      title: 'Chiudi segnalazione',
+      message: 'Vuoi chiudere ed eliminare questa segnalazione?',
+      confirmLabel: 'Chiudi',
+      destructive: true,
+      onConfirm: () =>
+        fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() })
+          .then(() => setList(prev => prev.filter(s => s._id !== id))),
+    });
   };
 
   const renderItem = ({ item }: { item: Segnalazione }) => {
@@ -104,12 +127,12 @@ export default function SegnalazioniScreen() {
         <Text style={s.testo}>{item.testo}</Text>
         <Text style={s.autore}>— {item.autoreNome}</Text>
         <View style={s.actions}>
-          {isAdmin && !risolta && (
+          {(isAdmin || isCreator) && !risolta && (
             <TouchableOpacity style={s.btnRisolvi} onPress={() => risolvi(item._id)}>
               <Text style={s.btnText}>Segna come risolta</Text>
             </TouchableOpacity>
           )}
-          {isCreator && risolta && (
+          {(isCreator || isAdmin) && risolta && (
             <TouchableOpacity style={s.btnChiudi} onPress={() => chiudi(item._id)}>
               <Text style={s.btnText}>Chiudi</Text>
             </TouchableOpacity>
@@ -121,6 +144,26 @@ export default function SegnalazioniScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
+      <Modal transparent animationType="fade" visible={!!confirm} onRequestClose={hideConfirm}>
+        <Pressable style={s.overlay} onPress={hideConfirm}>
+          <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
+            <Text style={s.dialogTitle}>{confirmData.current?.title}</Text>
+            <Text style={s.dialogMsg}>{confirmData.current?.message}</Text>
+            <View style={s.dialogRow}>
+              <TouchableOpacity style={s.cancelBtn} onPress={hideConfirm}>
+                <Text style={s.cancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.confirmBtn, confirmData.current?.destructive && s.destructiveBtn]}
+                onPress={() => { hideConfirm(); confirmData.current?.onConfirm(); }}
+              >
+                <Text style={s.confirmText}>{confirmData.current?.confirmLabel ?? 'Conferma'}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <View style={s.header}>
         <Text style={s.title}>Segnalazioni</Text>
         <TouchableOpacity style={s.addBtn} onPress={openModal}>
@@ -211,7 +254,16 @@ const s = StyleSheet.create({
   btnChiudi:    { backgroundColor: '#7f8c8d', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnText:      { color: '#fff', fontWeight: '600', fontSize: 13 },
 
-  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
+  dialog:       { backgroundColor: '#fff', borderRadius: 16, padding: 24, gap: 8 },
+  dialogTitle:  { fontSize: 18, fontWeight: '700', color: '#1a1a1a', marginBottom: 4 },
+  dialogMsg:    { fontSize: 15, color: '#444' },
+  dialogRow:    { flexDirection: 'row', gap: 10, marginTop: 12 },
+  cancelBtn:    { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#f0f0f0' },
+  cancelText:   { fontSize: 15, color: '#555' },
+  confirmBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#27ae60' },
+  confirmText:  { fontSize: 15, color: '#fff', fontWeight: '600' },
+  destructiveBtn: { backgroundColor: '#c0392b' },
   modal:        { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
   modalTitle:   { fontSize: 18, fontWeight: '700', marginBottom: 16 },
   label:        { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 8 },

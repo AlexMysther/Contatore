@@ -258,7 +258,7 @@ export default function App() {
         onRequestClose={() => setModalVisible(false)}
       >
         <KeyboardAvoidingView
-          style={s.overlay}
+          style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable style={s.overlay} onPress={() => setModalVisible(false)}>

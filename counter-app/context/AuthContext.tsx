@@ -17,6 +17,7 @@ type AuthCtx = {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<string | null>;
+  register: (username: string, password: string, nome: string, cognome: string) => Promise<string | null>;
   logout: () => void;
   updateAvatar: (uri: string) => Promise<string | null>;
 };
@@ -24,6 +25,7 @@ type AuthCtx = {
 const AuthContext = createContext<AuthCtx>({
   user: null, loading: true,
   login: async () => null,
+  register: async () => null as any,
   logout: () => {},
   updateAvatar: async () => null,
 });
@@ -70,6 +72,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const register = async (username: string, password: string, nome: string, cognome: string): Promise<string | null> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, nome, cognome }),
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error ?? 'Errore di registrazione';
+
+      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
+      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
+      setUser(u);
+      return null;
+    } catch {
+      return 'Impossibile raggiungere il server';
+    }
+  };
+
   const logout = () => {
     AsyncStorage.removeItem(AUTH_KEY);
     setUser(null);
@@ -97,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateAvatar }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateAvatar }}>
       {children}
     </AuthContext.Provider>
   );
