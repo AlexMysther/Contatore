@@ -18,7 +18,7 @@ const AVAILABLE_PRODUCTS = [
   'Pastiera',
 ];
 
-const API_URL  = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev/api/prodotti';
+const API_URL  = 'http://localhost:3000/api/prodotti';
 const POLL_MS  = 5000;
 
 type Item    = { _id: string; name: string; count: number };

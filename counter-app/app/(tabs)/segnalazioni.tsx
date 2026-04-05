@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 
-const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev/api';
+const API_BASE = 'http://localhost:3000/api';
 const POLL_MS  = 5000;
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;

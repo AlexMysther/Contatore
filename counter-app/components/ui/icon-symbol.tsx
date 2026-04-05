@@ -21,6 +21,7 @@ const MAPPING = {
   'lock.fill': 'lock',
   'checkmark.seal.fill': 'verified',
   'exclamationmark.bubble.fill': 'error',
+  'star.fill': 'star',
 } as IconMapping;
 
 /**

@@ -11,7 +11,7 @@ if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
 
-const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev';
+const API_BASE = 'http://localhost:3000';
 const API_URL  = `${API_BASE}/api/chores`;
 const POLL_MS  = 5000;
 
@@ -28,6 +28,8 @@ type Chore = {
 };
 
 type Pending = { choreId: string; titolo: string; sottoIdx?: number } | null;
+type Account = { _id: string; nome: string; cognome: string; ruolo: string };
+type AssignPending = { choreId: string } | null;
 
 function mergeRemote(remote: Omit<Chore, '_expanded'>[], local: Chore[]): Chore[] {
   return remote.map(r => {
@@ -43,9 +45,12 @@ export default function Chiusura() {
   const [chores, setChores]   = useState<Chore[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
-  const [pending, setPending] = useState<Pending>(null);
-  const pollRef               = useRef<ReturnType<typeof setInterval> | null>(null);
-  const statoRef              = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [pending, setPending]           = useState<Pending>(null);
+  const [accounts, setAccounts]         = useState<Account[]>([]);
+  const [assignPending, setAssignPending] = useState<AssignPending>(null);
+  const [confirmReset, setConfirmReset]   = useState(false);
+  const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statoRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
@@ -70,6 +75,15 @@ export default function Chiusura() {
         if (isFirstLoad) { setError(e.message); setLoading(false); }
       });
   };
+
+  // Carica accounts per tutti (serve per i colori dei badge)
+  useEffect(() => {
+    if (!user?.token) return;
+    fetch(`${API_BASE}/api/accounts`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then((data: Account[]) => Array.isArray(data) && setAccounts(data))
+      .catch(() => {});
+  }, [user?.token]);
 
   // Poll stato chiusura per tutti
   useEffect(() => {
@@ -163,6 +177,12 @@ export default function Chiusura() {
   const toggleExpand = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setChores(prev => prev.map(c => c._id === id ? { ...c, _expanded: !c._expanded } : c));
+  };
+
+  const assignTo = (choreId: string, nome: string | null) => {
+    setAssignPending(null);
+    setChores(prev => prev.map(c => c._id === choreId ? { ...c, assegnato_a: nome ?? undefined } : c));
+    patchChore(choreId, { assegnato_a: nome ?? '' });
   };
 
   const avvia = () => {
@@ -270,6 +290,52 @@ export default function Chiusura() {
         </Pressable>
       </Modal>
 
+      {/* Modale assegnazione */}
+      <Modal transparent animationType="fade" visible={!!assignPending} onRequestClose={() => setAssignPending(null)}>
+        <Pressable style={s.overlay} onPress={() => setAssignPending(null)}>
+          <Pressable style={s.assignDialog} onPress={e => e.stopPropagation()}>
+            <Text style={s.dialogTitle}>Assegna a…</Text>
+            {assignPending && (
+              <>
+                <TouchableOpacity
+                  style={s.assignRow}
+                  onPress={() => assignTo(assignPending.choreId, null)}
+                >
+                  <Text style={s.assignNone}>Nessuno</Text>
+                </TouchableOpacity>
+                {accounts.map(a => (
+                  <TouchableOpacity
+                    key={String(a._id)}
+                    style={s.assignRow}
+                    onPress={() => assignTo(assignPending.choreId, a.nome)}
+                  >
+                    <Text style={s.assignName}>{a.nome}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modale conferma spegni chiusura */}
+      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => setConfirmReset(false)}>
+        <Pressable style={s.overlay} onPress={() => setConfirmReset(false)}>
+          <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
+            <Text style={s.dialogTitle}>Spegni Chiusura?</Text>
+            <Text style={s.dialogMsg}>Tutti i progressi verranno azzerati e la chiusura sarà disattivata per tutti.</Text>
+            <View style={s.dialogBtns}>
+              <TouchableOpacity style={s.dialogCancel} onPress={() => setConfirmReset(false)}>
+                <Text style={s.dialogCancelLabel}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.dialogDanger} onPress={() => { setConfirmReset(false); reset(); }}>
+                <Text style={s.dialogConfirmLabel}>Spegni</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Header */}
       <View style={s.header}>
         <View style={s.titleRow}>
@@ -277,8 +343,8 @@ export default function Chiusura() {
           <Text style={s.title}>Chiusura</Text>
         </View>
         {canEdit && (
-          <TouchableOpacity onPress={reset}>
-            <Text style={s.resetLink}>Annulla</Text>
+          <TouchableOpacity onPress={() => setConfirmReset(true)}>
+            <Text style={s.resetLink}>Spegni Chiusura</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -319,15 +385,31 @@ export default function Chiusura() {
                     ? <Text style={[s.desc, item.completato && s.descDone]}>{item.descrizione}</Text>
                     : null}
                   <View style={s.meta}>
-                    {item.assegnato_a
-                      ? <Text style={s.badge}>👤 {item.assegnato_a}</Text>
-                      : null}
+                    {(() => {
+                      const acc = item.assegnato_a
+                        ? accounts.find(a => a.nome === item.assegnato_a)
+                        : null;
+                      const badgeStyle = !item.assegnato_a
+                        ? s.badgeRed
+                        : acc?.ruolo === 'admin'
+                          ? s.badgeBlue
+                          : s.badgeGreen;
+                      const label = item.assegnato_a
+                        ? `👤 ${item.assegnato_a}`
+                        : canEdit ? '👤 Assegna…' : '👤 Nessuno assegnato';
+                      return canEdit ? (
+                        <TouchableOpacity onPress={() => setAssignPending({ choreId: item._id })}>
+                          <Text style={[s.badge, badgeStyle]}>{label}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[s.badge, badgeStyle]}>{label}</Text>
+                      );
+                    })()}
                     {hasSotto
                       ? <Text style={s.badge}>📋 {sottoFatti}/{sottoTask.length}</Text>
                       : null}
                   </View>
                 </View>
-
                 {hasSotto && (
                   <TouchableOpacity onPress={() => toggleExpand(item._id)} style={s.expandBtn}>
                     <Text style={s.expandIcon}>{item._expanded ? '▲' : '▼'}</Text>
@@ -408,6 +490,9 @@ const s = StyleSheet.create({
 
   meta:          { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' },
   badge:         { fontSize: 12, color: '#555', backgroundColor: '#f0f0f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  badgeRed:      { color: RED,     backgroundColor: '#fdecea', borderWidth: 1, borderColor: RED },
+  badgeGreen:    { color: '#1e8449', backgroundColor: '#eafaf1', borderWidth: 1, borderColor: '#27ae60' },
+  badgeBlue:     { color: '#1a5276', backgroundColor: '#eaf2ff', borderWidth: 1, borderColor: '#2980b9' },
 
   expandBtn:     { padding: 4 },
   expandIcon:    { fontSize: 12, color: '#aaa' },
@@ -433,11 +518,16 @@ const s = StyleSheet.create({
 
   overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
   dialog:        { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 300, gap: 12 },
+  assignDialog:  { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: 300, gap: 4 },
+  assignRow:     { paddingVertical: 13, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  assignName:    { fontSize: 16, color: '#1a1a1a' },
+  assignNone:    { fontSize: 16, color: '#aaa', fontStyle: 'italic' },
   dialogTitle:   { fontSize: 18, fontWeight: '700', color: '#1a1a1a' },
   dialogMsg:     { fontSize: 15, color: '#444', lineHeight: 22 },
   dialogBtns:    { flexDirection: 'row', gap: 10, marginTop: 4 },
   dialogCancel:  { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#ddd', alignItems: 'center' },
   dialogCancelLabel: { fontSize: 15, color: '#555' },
   dialogConfirm: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: GREEN, alignItems: 'center' },
+  dialogDanger:  { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: RED,   alignItems: 'center' },
   dialogConfirmLabel: { fontSize: 15, color: '#fff', fontWeight: '700' },
 });

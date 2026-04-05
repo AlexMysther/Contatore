@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useState } from 'react';
 
 const AUTH_KEY = '@auth_token';
-const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev';
+const API_BASE = 'http://localhost:3000';
 
 type User = {
   id: string;
