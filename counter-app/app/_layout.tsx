@@ -16,17 +16,19 @@ function RootNavigator() {
   const { user, loading } = useAuth();
   const initialLoad = useRef(true);
 
+  const prevUserId = useRef<string | null>(null);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      initialLoad.current = false;
+      prevUserId.current = null;
       router.replace('/login');
-    } else if (initialLoad.current) {
-      initialLoad.current = false;
-      router.replace('/(tabs)');
-    } else {
+    } else if (prevUserId.current === null) {
+      // primo login: mostra welcome
+      prevUserId.current = user.id;
       router.replace('/welcome');
     }
+    // aggiornamenti utente (es. avatar) non causano redirect
   }, [user, loading]);
 
   return (

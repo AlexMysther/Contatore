@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, Modal, Pressable,
-  StyleSheet, ActivityIndicator, LayoutAnimation, Platform, UIManager,
+  StyleSheet, ActivityIndicator, LayoutAnimation, Platform, UIManager, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
@@ -49,6 +49,8 @@ export default function Chiusura() {
   const [accounts, setAccounts]         = useState<Account[]>([]);
   const [assignPending, setAssignPending] = useState<AssignPending>(null);
   const [confirmReset, setConfirmReset]   = useState(false);
+  const [resetPin, setResetPin]           = useState('');
+  const [resetPinError, setResetPinError] = useState<string | null>(null);
   const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null);
   const statoRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -145,7 +147,12 @@ export default function Chiusura() {
     }
   };
 
+  const canCheck = (chore: Chore) =>
+    !!chore.assegnato_a && chore.assegnato_a === user?.nome;
+
   const tapChore = (id: string, titolo: string, currentDone: boolean) => {
+    const chore = chores.find(c => c._id === id);
+    if (!chore || !canCheck(chore)) return;
     if (currentDone) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setChores(prev => prev.map(c => c._id === id ? { ...c, completato: false } : c));
@@ -156,6 +163,8 @@ export default function Chiusura() {
   };
 
   const tapSotto = (choreId: string, idx: number, titolo: string, currentDone: boolean) => {
+    const chore = chores.find(c => c._id === choreId);
+    if (!chore || !canCheck(chore)) return;
     if (currentDone) {
       setChores(prev => {
         const next = prev.map(c => {
@@ -192,18 +201,32 @@ export default function Chiusura() {
   };
 
   const reset = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    chores.forEach(c => {
-      const sotto_task = c.sotto_task?.map(st => ({ ...st, completato: false }));
-      patchChore(c._id, { completato: false, ...(sotto_task ? { sotto_task } : {}) });
-    });
-    setChores([]);
-    fetch(`${API_BASE}/api/chiusura/reset`, { method: 'POST', headers: authHeaders() })
-      .then(() => setAvviata(false))
-      .catch(() => {});
+    fetch(`${API_BASE}/api/chiusura/reset`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ pin: resetPin }),
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const data = await r.json();
+          setResetPinError(data.error ?? 'PIN non corretto');
+          return;
+        }
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        chores.forEach(c => {
+          const sotto_task = c.sotto_task?.map(st => ({ ...st, completato: false }));
+          patchChore(c._id, { completato: false, ...(sotto_task ? { sotto_task } : {}) });
+        });
+        setChores([]);
+        setConfirmReset(false);
+        setResetPin('');
+        setResetPinError(null);
+        setAvviata(false);
+      })
+      .catch(() => setResetPinError('Errore di rete'));
   };
 
-  // ── Chiusura non ancora avviata ───────────────────────────────────────────
+// ── Chiusura non ancora avviata ───────────────────────────────────────────
   if (!avviata) {
     if (canEdit) {
       return (
@@ -255,20 +278,6 @@ export default function Chiusura() {
   const progress  = total > 0 ? doneCount / total : 0;
   const allDone   = total > 0 && doneCount === total;
 
-  // ── Tutto fatto ───────────────────────────────────────────────────────────
-  if (allDone) {
-    return (
-      <SafeAreaView style={[s.container, s.center]}>
-        <Text style={{ fontSize: 64 }}>🎉</Text>
-        <Text style={s.doneTitle}>Tutto fatto!</Text>
-        <Text style={s.doneSubtitle}>Hai completato tutte le {total} attività.</Text>
-        <TouchableOpacity style={s.greenBtn} onPress={reset}>
-          <Text style={s.btnLabel}>Ricomincia</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
   // ── Checklist ─────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={s.container}>
@@ -318,17 +327,28 @@ export default function Chiusura() {
         </Pressable>
       </Modal>
 
-      {/* Modale conferma spegni chiusura */}
-      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => setConfirmReset(false)}>
-        <Pressable style={s.overlay} onPress={() => setConfirmReset(false)}>
+      {/* Modale conferma spegni chiusura (con PIN) */}
+      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
+        <Pressable style={s.overlay} onPress={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Spegni Chiusura?</Text>
-            <Text style={s.dialogMsg}>Tutti i progressi verranno azzerati e la chiusura sarà disattivata per tutti.</Text>
+            <Text style={s.dialogMsg}>Tutti i progressi verranno azzerati. Inserisci il PIN per confermare.</Text>
+            <TextInput
+              style={[s.pinInput, resetPinError ? s.pinInputError : null]}
+              placeholder="PIN numerico"
+              placeholderTextColor="#aaa"
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              value={resetPin}
+              onChangeText={v => { setResetPin(v); setResetPinError(null); }}
+            />
+            {resetPinError && <Text style={s.pinErrorText}>{resetPinError}</Text>}
             <View style={s.dialogBtns}>
-              <TouchableOpacity style={s.dialogCancel} onPress={() => setConfirmReset(false)}>
+              <TouchableOpacity style={s.dialogCancel} onPress={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
                 <Text style={s.dialogCancelLabel}>Annulla</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.dialogDanger} onPress={() => { setConfirmReset(false); reset(); }}>
+              <TouchableOpacity style={s.dialogDanger} onPress={reset}>
                 <Text style={s.dialogConfirmLabel}>Spegni</Text>
               </TouchableOpacity>
             </View>
@@ -343,8 +363,8 @@ export default function Chiusura() {
           <Text style={s.title}>Chiusura</Text>
         </View>
         {canEdit && (
-          <TouchableOpacity onPress={() => setConfirmReset(true)}>
-            <Text style={s.resetLink}>Spegni Chiusura</Text>
+          <TouchableOpacity style={s.resetBtn} onPress={() => setConfirmReset(true)}>
+            <Text style={s.resetBtnLabel}>Spegni Chiusura</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -371,10 +391,10 @@ export default function Chiusura() {
               <View style={s.cardRow}>
                 <TouchableOpacity
                   onPress={() => tapChore(item._id, item.titolo, item.completato)}
-                  activeOpacity={0.7}
+                  activeOpacity={canCheck(item) ? 0.7 : 1}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <View style={[s.check, item.completato && s.checkDone]}>
+                  <View style={[s.check, item.completato && s.checkDone, !canCheck(item) && !item.completato && s.checkDisabled]}>
                     {item.completato && <Text style={s.checkMark}>✓</Text>}
                   </View>
                 </TouchableOpacity>
@@ -481,6 +501,7 @@ const s = StyleSheet.create({
 
   check:         { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: RED, alignItems: 'center', justifyContent: 'center' },
   checkDone:     { backgroundColor: GREEN, borderColor: GREEN },
+  checkDisabled: { borderColor: '#ccc', opacity: 0.4 },
   checkMark:     { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   label:         { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
@@ -530,4 +551,11 @@ const s = StyleSheet.create({
   dialogConfirm: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: GREEN, alignItems: 'center' },
   dialogDanger:  { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: RED,   alignItems: 'center' },
   dialogConfirmLabel: { fontSize: 15, color: '#fff', fontWeight: '700' },
+
+  resetBtn:       { backgroundColor: RED, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  resetBtnLabel:  { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  pinInput:       { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 18, letterSpacing: 4, color: '#1a1a1a', textAlign: 'center', marginTop: 4 },
+  pinInputError:  { borderColor: RED },
+  pinErrorText:   { fontSize: 13, color: RED, textAlign: 'center' },
 });

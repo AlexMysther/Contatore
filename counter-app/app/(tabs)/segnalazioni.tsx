@@ -103,9 +103,9 @@ export default function SegnalazioniScreen() {
 
   const chiudi = (id: string) => {
     showConfirm({
-      title: 'Chiudi segnalazione',
-      message: 'Vuoi chiudere ed eliminare questa segnalazione?',
-      confirmLabel: 'Chiudi',
+      title: 'Elimina segnalazione',
+      message: 'Vuoi eliminare questa segnalazione?',
+      confirmLabel: 'Elimina',
       destructive: true,
       onConfirm: () =>
         fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() })
@@ -134,7 +134,7 @@ export default function SegnalazioniScreen() {
           )}
           {(isCreator || isAdmin) && risolta && (
             <TouchableOpacity style={s.btnChiudi} onPress={() => chiudi(item._id)}>
-              <Text style={s.btnText}>Chiudi</Text>
+              <Text style={s.btnText}>Elimina segnalazione</Text>
             </TouchableOpacity>
           )}
         </View>

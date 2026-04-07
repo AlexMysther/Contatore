@@ -1,11 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 const AUTH_KEY = '@auth_token';
 const API_BASE = 'http://localhost:3000';
 
 type User = {
   id: string;
+  username: string;
   nome: string;
   ruolo: string;
   permessi: string[];
@@ -63,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
 
-      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token, avatarUrl };
+      const u: User = { id: data.id, username, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token, avatarUrl };
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;
@@ -100,7 +102,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return 'Non autenticato';
     try {
       const formData = new FormData();
-      formData.append('avatar', { uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
+      if (Platform.OS === 'web') {
+        const blob = await fetch(uri).then(r => r.blob());
+        formData.append('avatar', blob, 'avatar.jpg');
+      } else {
+        formData.append('avatar', { uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
+      }
       const res = await fetch(`${API_BASE}/api/utenti/avatar`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },

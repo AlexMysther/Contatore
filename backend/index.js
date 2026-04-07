@@ -156,6 +156,12 @@ app.post('/api/chiusura/reset', auth, async (req, res) => {
   if (!req.user.permessi?.includes('chiusura'))
     return res.status(403).json({ error: 'Non autorizzato' });
   try {
+    const doc = await db.collection('settings').findOne({ _id: 'chiusura' });
+    if (doc?.pin) {
+      const { pin } = req.body;
+      if (!pin || String(pin) !== String(doc.pin))
+        return res.status(403).json({ error: 'PIN non corretto' });
+    }
     await db.collection('settings').updateOne(
       { _id: 'chiusura' },
       { $set: { avviata: false } },

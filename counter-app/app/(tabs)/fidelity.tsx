@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, Modal, Platform, Pressable, RefreshControl,
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
@@ -70,13 +70,10 @@ export default function FidelityScreen() {
 
   const [catalogo, setCatalogo]       = useState<Dolce[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [numSlots, setNumSlots]       = useState(6);
   const [loading, setLoading]         = useState(true);
 
   const [adminModal, setAdminModal]   = useState(false);
-  const [slotsInput, setSlotsInput]   = useState('');
   const [pickerValue, setPickerValue] = useState('');
-  const [saving, setSaving]           = useState(false);
 
   const headers = () => ({
     'Content-Type': 'application/json',
@@ -93,7 +90,6 @@ export default function FidelityScreen() {
       if (resDolci.status === 401 || resConfig.status === 401) { logout(); return; }
       const [dolciData, configData] = await Promise.all([resDolci.json(), resConfig.json()]);
       setCatalogo(dolciData);
-      setNumSlots(configData.numSlots ?? 6);
       setSelectedIds(configData.selectedIds ?? []);
     } catch {
       Alert.alert('Errore', 'Impossibile caricare i dati');
@@ -104,37 +100,17 @@ export default function FidelityScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  const selectedDolci: (Dolce | null)[] = Array.from({ length: numSlots }, (_, i) => {
+  const selectedDolci: (Dolce | null)[] = Array.from({ length: catalogo.length }, (_, i) => {
     const id = selectedIds[i];
     return id ? (catalogo.find(d => d._id === id) ?? null) : null;
   });
 
   const disponibili = catalogo.filter(d => !selectedIds.includes(d._id));
 
-  const saveSlots = async () => {
-    const n = parseInt(slotsInput, 10);
-    if (isNaN(n) || n < 1) { Alert.alert('Errore', 'Inserisci un numero valido >= 1'); return; }
-    setSaving(true);
-    try {
-      const res = await fetch(`${API}/fidelity/config`, {
-        method: 'PATCH',
-        headers: headers(),
-        body: JSON.stringify({ numSlots: n }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      setNumSlots(n);
-      setSlotsInput('');
-    } catch (err: any) {
-      Alert.alert('Errore', err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const aggiungiDolce = async () => {
     if (!pickerValue) return;
-    if (selectedIds.length >= numSlots) {
-      Alert.alert('Tabella piena', `Hai già ${numSlots} dolci. Aumenta le caselle o rimuovine uno.`);
+    if (selectedIds.length >= catalogo.length) {
+      Alert.alert('Tabella piena', 'Tutti i dolci sono già in tabella.');
       return;
     }
     const next = [...selectedIds, pickerValue];
@@ -151,14 +127,12 @@ export default function FidelityScreen() {
   const aggiungiTutti = async () => {
     if (catalogo.length === 0) return;
     const tuttiIds = catalogo.map(d => d._id);
-    const nuovoNumSlots = catalogo.length;
     setSelectedIds(tuttiIds);
-    setNumSlots(nuovoNumSlots);
     setPickerValue('');
     try {
       await fetch(`${API}/fidelity/config`, {
         method: 'PATCH', headers: headers(),
-        body: JSON.stringify({ selectedIds: tuttiIds, numSlots: nuovoNumSlots }),
+        body: JSON.stringify({ selectedIds: tuttiIds }),
       });
     } catch { Alert.alert('Errore', 'Impossibile salvare'); }
   };
@@ -185,7 +159,7 @@ export default function FidelityScreen() {
   return (
     <SafeAreaView style={s.container}>
       <View style={s.header}>
-        <Text style={s.title}>Dolci del Giorno</Text>
+        <Text style={s.title}>Dolci Gratis Fidelity</Text>
         {Platform.OS === 'web' && (
           <TouchableOpacity onPress={load} style={s.refreshBtn}>
             <Text style={s.refreshBtnText}>↻</Text>
@@ -212,7 +186,7 @@ export default function FidelityScreen() {
       {isAdmin && (
         <TouchableOpacity
           style={s.gestisciBtn}
-          onPress={() => { setSlotsInput(String(numSlots)); setAdminModal(true); }}
+          onPress={() => setAdminModal(true)}
         >
           <Text style={s.gestisciBtnText}>Gestisci</Text>
         </TouchableOpacity>
@@ -224,25 +198,9 @@ export default function FidelityScreen() {
             <View style={s.modal}>
               <Text style={s.modalTitle}>Gestione Fidelity</Text>
 
-              {/* Numero caselle */}
-              <Text style={s.sectionLabel}>Numero caselle</Text>
-              <View style={s.row}>
-                <TextInput
-                  style={s.input}
-                  keyboardType="numeric"
-                  placeholder={String(numSlots)}
-                  placeholderTextColor="#aaa"
-                  value={slotsInput}
-                  onChangeText={setSlotsInput}
-                />
-                <TouchableOpacity style={s.saveBtn} onPress={saveSlots} disabled={saving}>
-                  <Text style={s.saveBtnText}>Salva</Text>
-                </TouchableOpacity>
-              </View>
-
               {/* Dropdown */}
               <Text style={s.sectionLabel}>
-                Aggiungi dolce ({selectedIds.length}/{numSlots})
+                Aggiungi dolce ({selectedIds.length}/{catalogo.length})
               </Text>
               <Dropdown
                 items={disponibili}

@@ -23,7 +23,7 @@ const POLL_MS  = 5000;
 
 type Item    = { _id: string; name: string; count: number };
 type Pending = Record<string, number | 'delete'>;
-type Confirm = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
+type Confirm = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean; delta?: number } | null;
 
 export default function App() {
   const { user, logout, updateAvatar } = useAuth();
@@ -113,10 +113,17 @@ export default function App() {
     setPending(prev => ({ ...prev, [id]: 'delete' }));
 
   const commitChanges = () => {
+    const netDelta = Object.entries(pending).reduce((acc, [id, val]) => {
+      const item = items.find(i => i._id === id);
+      if (!item) return acc;
+      if (val === 'delete') return acc - item.count;
+      return acc + ((val as number) - item.count);
+    }, 0);
     setConfirm({
       title: 'Invia modifiche',
       message: 'Vuoi applicare tutte le modifiche in sospeso?',
       confirmLabel: 'Invia',
+      delta: netDelta,
       onConfirm: async () => {
         const ops = Object.entries(pending).map(([id, val]) => {
           if (val === 'delete') {
@@ -158,6 +165,11 @@ export default function App() {
         <Pressable style={s.overlay} onPress={() => setConfirm(null)}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>{confirm?.title}</Text>
+            {confirm?.delta !== undefined && confirm.delta !== 0 && (
+              <Text style={[s.deltaNum, confirm.delta > 0 ? s.deltaPos : s.deltaNeg]}>
+                {confirm.delta > 0 ? `+${confirm.delta}` : `${confirm.delta}`}
+              </Text>
+            )}
             <Text style={s.confirmMsg}>{confirm?.message}</Text>
             <View style={s.dialogRow}>
               <TouchableOpacity style={s.cancelBtn} onPress={() => setConfirm(null)}>
@@ -198,16 +210,23 @@ export default function App() {
       </TouchableOpacity>
 
       <FlatList
-        data={items}
+        data={[...items].sort((a, b) => {
+          const aFinito = a.count === 0;
+          const bFinito = b.count === 0;
+          if (aFinito !== bFinito) return aFinito ? 1 : -1;
+          return a.name.localeCompare(b.name, 'it');
+        })}
         keyExtractor={item => item._id}
         renderItem={({ item }) => {
           const isDeleted = pending[item._id] === 'delete';
           const isDirty   = pending[item._id] !== undefined;
           const diff      = isDirty && !isDeleted ? (displayCount(item) - item.count) : 0;
           const isSoldOut = !isDeleted && item.count === 0;
+          const activeId  = Object.keys(pending).find(k => typeof pending[k] === 'number');
+          const isLocked  = !!activeId && activeId !== item._id;
           return (
-            <View style={[s.card, isDeleted && s.cardDeleted, isDirty && !isDeleted && s.cardDirty, isSoldOut && s.cardSoldOut]}>
-              <TouchableOpacity onPress={() => remove(item._id)} disabled={isDeleted}>
+            <View style={[s.card, isDeleted && s.cardDeleted, isDirty && !isDeleted && s.cardDirty, isSoldOut && s.cardSoldOut, isLocked && s.cardLocked]}>
+              <TouchableOpacity onPress={() => remove(item._id)} disabled={isDeleted || isLocked}>
                 <Text style={[s.del, isDeleted && s.delActive]}>✕</Text>
               </TouchableOpacity>
               <View style={s.cardBody}>
@@ -225,12 +244,12 @@ export default function App() {
                 <Text style={s.deletedLabel}>Da eliminare</Text>
               ) : isSoldOut ? null : (
                 <View style={s.counter}>
-                  <TouchableOpacity style={s.btn} onPress={() => change(item._id, -1)}>
-                    <Text style={s.btnText}>−</Text>
+                  <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, -1)} disabled={isLocked}>
+                    <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>−</Text>
                   </TouchableOpacity>
                   <Text style={s.count}>{displayCount(item)}</Text>
-                  <TouchableOpacity style={s.btn} onPress={() => change(item._id, +1)}>
-                    <Text style={s.btnText}>+</Text>
+                  <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, +1)} disabled={isLocked}>
+                    <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>+</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -355,9 +374,9 @@ const s = StyleSheet.create({
   addBtnText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
   card:         { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, boxShadow: '0px 2px 4px rgba(0,0,0,0.06)', elevation: 2 } as any,
   cardDirty:    { borderWidth: 1.5, borderColor: '#c0392b' },
-  cardDeleted:  { backgroundColor: '#fff0f0', borderWidth: 1.5, borderColor: '#e74c3c' },
+  cardDeleted:  { backgroundColor: '#fff0f0', borderWidth: 1.5, borderColor: '#c0392b' },
   del:          { color: '#ccc', fontSize: 14 },
-  delActive:    { color: '#e74c3c' },
+  delActive:    { color: '#c0392b' },
   cardBody:     { flex: 1, gap: 2 },
   name:         { fontSize: 16, color: '#1a1a1a' },
   nameDeleted:  { color: '#aaa', textDecorationLine: 'line-through' },
@@ -368,12 +387,15 @@ const s = StyleSheet.create({
   nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   soldOutBadge: { backgroundColor: '#e67e22', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   soldOutText:  { fontSize: 11, fontWeight: '700', color: '#fff' },
-  deletedLabel: { fontSize: 13, color: '#e74c3c', fontWeight: '600' },
+  deletedLabel: { fontSize: 13, color: '#c0392b', fontWeight: '600' },
   counter:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   btn:          { backgroundColor: '#fdecea', borderRadius: 8, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   btnText:      { fontSize: 20, color: '#c0392b', lineHeight: 24 },
+  btnDisabled:      { backgroundColor: '#f5f5f5' },
+  btnTextDisabled:  { color: '#ccc' },
+  cardLocked:   { opacity: 0.45 },
   count:        { fontSize: 18, fontWeight: '600', minWidth: 28, textAlign: 'center', color: '#1a1a1a' },
-  bar:          { flexDirection: 'row', gap: 10, paddingTop: 12, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 4 },
+  bar:          { flexDirection: 'row', gap: 10, paddingTop: 12, paddingBottom: 16, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 4 },
   discardBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#f0f0f0' },
   discardText:  { fontSize: 15, color: '#555' },
   commitBtn:    { flex: 2, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#c0392b' },
@@ -382,6 +404,9 @@ const s = StyleSheet.create({
   dialog:       { backgroundColor: '#fff', borderRadius: 16, padding: 24, gap: 8 },
   dialogTitle:  { fontSize: 20, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
   confirmMsg:   { fontSize: 15, color: '#444' },
+  deltaNum:     { fontSize: 52, fontWeight: '800', textAlign: 'center', marginVertical: 4 },
+  deltaPos:     { color: '#27ae60' },
+  deltaNeg:     { color: '#c0392b' },
   label:        { fontSize: 13, color: '#666', marginTop: 4 },
   dialogInput:  { backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12, fontSize: 16, borderWidth: 1, borderColor: '#ddd', color: '#1a1a1a', marginBottom: 4 },
   dialogRow:    { flexDirection: 'row', gap: 10, marginTop: 12 },
@@ -389,7 +414,7 @@ const s = StyleSheet.create({
   cancelText:   { fontSize: 15, color: '#555' },
   confirmBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#c0392b' },
   confirmText:  { fontSize: 15, color: '#fff', fontWeight: '600' },
-  destructiveBtn: { backgroundColor: '#e74c3c' },
+  destructiveBtn: { backgroundColor: '#c0392b' },
   addErrorText: { fontSize: 13, color: '#c0392b', textAlign: 'center' },
   productList:          { maxHeight: 160, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, marginBottom: 4 },
   productItem:          { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
