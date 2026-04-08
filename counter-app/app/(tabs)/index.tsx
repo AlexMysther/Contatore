@@ -18,7 +18,7 @@ const AVAILABLE_PRODUCTS = [
   'Pastiera',
 ];
 
-const API_URL  = 'https://contatore-production.up.railway.app/api/prodotti';
+const API_URL  = 'http://localhost:3000/api/prodotti';
 const POLL_MS  = 5000;
 
 type Item    = { _id: string; name: string; count: number };
