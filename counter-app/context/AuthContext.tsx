@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (!res.ok) return data.error ?? 'Errore di registrazione';
 
-      const u: User = { id: data.id, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
+      const u: User = { id: data.id, username: data.username, nome: data.nome, ruolo: data.ruolo, permessi: data.permessi, token: data.token };
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;
