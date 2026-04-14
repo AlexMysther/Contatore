@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Staffium",
-    "slug": "staffium",
+    "slug": "counter-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
