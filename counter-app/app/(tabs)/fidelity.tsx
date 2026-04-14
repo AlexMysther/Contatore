@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 
-const API = 'https://contatore-production.up.railway.app/api';
+const API = 'http://localhost:3000/api';
 
 type Dolce = { _id: string; nome: string };
 
@@ -176,9 +176,17 @@ export default function FidelityScreen() {
         )}
         {selectedDolci.map((dolce, i) => (
           <View key={i} style={[s.cell, dolce ? s.cellFilled : s.cellEmpty]}>
-            <Text style={[s.cellName, !dolce && s.cellNameEmpty]}>
-              {dolce ? dolce.nome : '—'}
-            </Text>
+            {dolce ? (
+              <>
+                <View style={s.cellBadge}>
+                  <Text style={s.cellBadgeText}>{i + 1}</Text>
+                </View>
+                <Text style={s.cellName}>{dolce.nome}</Text>
+                <Text style={s.cellStar}>★</Text>
+              </>
+            ) : (
+              <Text style={s.cellNameEmpty}>—</Text>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -193,7 +201,7 @@ export default function FidelityScreen() {
       )}
 
       {isAdmin && (
-        <Modal visible={adminModal} animationType="slide" transparent>
+        <Modal visible={adminModal} animationType="fade" transparent>
           <View style={s.overlay}>
             <View style={s.modal}>
               <Text style={s.modalTitle}>Gestione Fidelity</Text>
@@ -291,14 +299,17 @@ const s = StyleSheet.create({
   adminBtnText:     { color: '#fff', fontWeight: '600', fontSize: 14 },
 
   grid:             { paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
-  cell:             { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 18, justifyContent: 'center' },
-  cellFilled:       { backgroundColor: '#c0392b' },
-  cellEmpty:        { backgroundColor: '#e8e8e8' },
-  cellName:         { fontSize: 20, fontWeight: '700', color: '#fff' },
-  cellNameEmpty:    { color: '#bbb', fontWeight: '400', fontSize: 20 },
+  cell:             { borderRadius: 16, paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  cellFilled:       { backgroundColor: '#fff', borderWidth: 2, borderColor: '#c0392b', shadowColor: '#c0392b', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  cellEmpty:        { backgroundColor: '#fff', borderWidth: 2, borderColor: '#e0e0e0' },
+  cellBadge:        { width: 34, height: 34, borderRadius: 17, backgroundColor: '#c0392b', alignItems: 'center', justifyContent: 'center' },
+  cellBadgeText:    { color: '#fff', fontWeight: '800', fontSize: 15 },
+  cellName:         { fontSize: 18, fontWeight: '700', color: '#c0392b', flex: 1 },
+  cellNameEmpty:    { color: '#bbb', fontWeight: '400', fontSize: 18 },
+  cellStar:         { fontSize: 16, color: 'rgba(192,57,43,0.3)' },
 
   overlay:          { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modal:            { backgroundColor: '#f5f5f5', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '88%' },
+  modal:            { backgroundColor: '#f5f5f5', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, height: '60%' },
   modalTitle:       { fontSize: 20, fontWeight: '700', marginBottom: 20, color: '#1a1a1a' },
   sectionLabel:     { fontSize: 12, fontWeight: '700', color: '#999', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8, marginTop: 16 },
 
@@ -312,7 +323,7 @@ const s = StyleSheet.create({
   aggiungiBtnText:  { color: '#fff', fontWeight: '700', fontSize: 15 },
   tuttiBtn:         { backgroundColor: '#333', borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
 
-  selectedList:     { maxHeight: 180 },
+  selectedList:     { maxHeight: 220, overflow: 'hidden' },
   selectedRow:      { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, marginBottom: 6, gap: 12 },
   selectedBadge:    { width: 24, height: 24, borderRadius: 12, backgroundColor: '#c0392b', alignItems: 'center', justifyContent: 'center' },
   selectedBadgeText:{ color: '#fff', fontSize: 12, fontWeight: '700' },
