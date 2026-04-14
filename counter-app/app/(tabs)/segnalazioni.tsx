@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = 'https://contatore-production.up.railway.app/api';
 const POLL_MS  = 5000;
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
