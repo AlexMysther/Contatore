@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
-const API_BASE = 'https://contatore-production.up.railway.app/api';
+const API_BASE = 'http://localhost:3000/api';
 const POLL_MS  = 5000;
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
@@ -136,7 +136,7 @@ export default function SegnalazioniScreen() {
           )}
           {(isCreator || isAdmin) && risolta && (
             <TouchableOpacity style={s.btnTrash} onPress={() => chiudi(item._id)}>
-              <Ionicons name="trash-outline" size={20} color="#888" />
+              <Ionicons name="trash-outline" size={18} color="#fff" />
             </TouchableOpacity>
           )}
         </View>
@@ -252,7 +252,7 @@ const s = StyleSheet.create({
   testo:        { fontSize: 15, color: '#222', marginBottom: 6, fontWeight: '600' },
   autore:       { fontSize: 12, color: '#999', fontWeight: '600' },
   actions:      { marginTop: 10, flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
-  btnTrash:     { padding: 6 },
+  btnTrash:     { backgroundColor: '#aaa', borderRadius: 8, padding: 8, alignItems: 'center', justifyContent: 'center' },
   btnRisolvi:   { backgroundColor: '#c0392b', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnChiudi:    { backgroundColor: '#7f8c8d', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnText:      { color: '#fff', fontWeight: '600', fontSize: 13 },

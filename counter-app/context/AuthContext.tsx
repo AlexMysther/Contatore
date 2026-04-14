@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 const AUTH_KEY = '@auth_token';
-const API_BASE = 'https://contatore-production.up.railway.app';
+const API_BASE = 'http://localhost:3000';
 
 type User = {
   id: string;

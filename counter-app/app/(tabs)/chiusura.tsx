@@ -11,7 +11,7 @@ if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
 
-const API_BASE = 'https://contatore-production.up.railway.app';
+const API_BASE = 'http://localhost:3000';
 const API_URL  = `${API_BASE}/api/chores`;
 const POLL_MS  = 5000;
 

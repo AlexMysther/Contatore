@@ -10,8 +10,8 @@ import { useNav } from '@/context/NavContext';
 
 const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
 
-const API_URL  = 'https://contatore-production.up.railway.app/api/prodotti';
-const API_DISPONIBILI = 'https://contatore-production.up.railway.app/api/prodotti-disponibili';
+const API_URL  = 'http://localhost:3000/api/prodotti';
+const API_DISPONIBILI = 'http://localhost:3000/api/prodotti-disponibili';
 const POLL_MS  = 5000;
 
 type Item      = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
@@ -195,7 +195,7 @@ export default function App() {
 
       <Image source={BANNER_IMAGE} style={s.banner} resizeMode="cover" />
       <View style={s.titleRow}>
-        <Text style={s.title}>Contatore Prodotti</Text>
+        <Text style={s.title}>{user?.nome ?? 'Ciao!'}</Text>
         {user && (user.avatarUrl
           ? <Image source={{ uri: user.avatarUrl }} style={s.avatar} />
           : <View style={s.avatarPlaceholder}><Text style={s.avatarInitial}>{user.nome?.[0]?.toUpperCase() ?? '?'}</Text></View>
