@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, StyleSheet,
-  SafeAreaView, Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Pressable,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Pressable,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
-const API_BASE = 'https://silver-cod-jjrpr6wgwpxpc5p7w-3000.app.github.dev/api';
+const API_BASE = 'https://contatore-production.up.railway.app/api';
 const POLL_MS  = 5000;
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
@@ -103,9 +105,9 @@ export default function SegnalazioniScreen() {
 
   const chiudi = (id: string) => {
     showConfirm({
-      title: 'Chiudi segnalazione',
-      message: 'Vuoi chiudere ed eliminare questa segnalazione?',
-      confirmLabel: 'Chiudi',
+      title: 'Elimina segnalazione',
+      message: 'Vuoi eliminare questa segnalazione?',
+      confirmLabel: 'Elimina',
       destructive: true,
       onConfirm: () =>
         fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() })
@@ -133,8 +135,8 @@ export default function SegnalazioniScreen() {
             </TouchableOpacity>
           )}
           {(isCreator || isAdmin) && risolta && (
-            <TouchableOpacity style={s.btnChiudi} onPress={() => chiudi(item._id)}>
-              <Text style={s.btnText}>Chiudi</Text>
+            <TouchableOpacity style={s.btnTrash} onPress={() => chiudi(item._id)}>
+              <Ionicons name="trash-outline" size={20} color="#888" />
             </TouchableOpacity>
           )}
         </View>
@@ -232,25 +234,26 @@ export default function SegnalazioniScreen() {
 }
 
 const s = StyleSheet.create({
-  safe:       { flex: 1, backgroundColor: '#f5f5f5' },
+  safe:       { flex: 1, backgroundColor: '#f5f5f5', paddingTop: 24 },
   header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title:      { fontSize: 20, fontWeight: '700' },
   addBtn:     { backgroundColor: '#c0392b', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
   addBtnText: { color: '#fff', fontWeight: '600' },
   empty:      { textAlign: 'center', color: '#999', marginTop: 60, fontSize: 15 },
 
-  card:         { backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
-  cardRisolta:  { opacity: 0.75 },
+  card:         { backgroundColor: '#fdecea', borderRadius: 10, padding: 14, marginBottom: 12, borderWidth: 1.5, borderColor: '#ef9a9a', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  cardRisolta:  { backgroundColor: '#e8f5e9', borderColor: '#a5d6a7' },
   cardHeader:   { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  badge:        { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeAperta:  { backgroundColor: '#fdecea' },
-  badgeRisolta: { backgroundColor: '#e8f5e9' },
+  badge:        { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
+  badgeAperta:  { backgroundColor: '#fdecea', borderColor: '#ef9a9a' },
+  badgeRisolta: { backgroundColor: '#e8f5e9', borderColor: '#a5d6a7' },
   badgeText:    { fontSize: 11, fontWeight: '600' },
-  categoria:    { fontSize: 13, fontWeight: '600', color: '#555' },
-  testo:        { fontSize: 15, color: '#222', marginBottom: 6 },
-  autore:       { fontSize: 12, color: '#999' },
-  actions:      { marginTop: 10, flexDirection: 'row', gap: 8 },
-  btnRisolvi:   { backgroundColor: '#27ae60', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
+  categoria:    { fontSize: 13, fontWeight: '600', color: '#555', borderWidth: 1, borderColor: '#ccc', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  testo:        { fontSize: 15, color: '#222', marginBottom: 6, fontWeight: '600' },
+  autore:       { fontSize: 12, color: '#999', fontWeight: '600' },
+  actions:      { marginTop: 10, flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  btnTrash:     { padding: 6 },
+  btnRisolvi:   { backgroundColor: '#c0392b', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnChiudi:    { backgroundColor: '#7f8c8d', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnText:      { color: '#fff', fontWeight: '600', fontSize: 13 },
 
@@ -261,9 +264,9 @@ const s = StyleSheet.create({
   dialogRow:    { flexDirection: 'row', gap: 10, marginTop: 12 },
   cancelBtn:    { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#f0f0f0' },
   cancelText:   { fontSize: 15, color: '#555' },
-  confirmBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#27ae60' },
+  confirmBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#c0392b' },
   confirmText:  { fontSize: 15, color: '#fff', fontWeight: '600' },
-  destructiveBtn: { backgroundColor: '#c0392b' },
+  destructiveBtn: { backgroundColor: '#7f8c8d' },
   modal:        { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
   modalTitle:   { fontSize: 18, fontWeight: '700', marginBottom: 16 },
   label:        { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 8 },

@@ -42,6 +42,21 @@ async function connect() {
     ]);
     console.log('Categorie inizializzate');
   }
+
+  const dolciCount = await db.collection('dolci').countDocuments();
+  if (dolciCount === 0) {
+    await db.collection('dolci').insertMany([
+      { nome: 'Sorbetto di Limone',    createdAt: new Date() },
+      { nome: 'Baciata alla Nutella',  createdAt: new Date() },
+      { nome: 'Cannolo Siciliano',     createdAt: new Date() },
+      { nome: 'Tortino Cuore Caldo',   createdAt: new Date() },
+      { nome: 'Delizia di Limone',     createdAt: new Date() },
+      { nome: 'Cheesecake',            createdAt: new Date() },
+      { nome: 'Tiramisù',              createdAt: new Date() },
+      { nome: 'Pastiera Napoletana',   createdAt: new Date() },
+    ]);
+    console.log('Dolci inizializzati');
+  }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_changeme';
@@ -141,6 +156,12 @@ app.post('/api/chiusura/reset', auth, async (req, res) => {
   if (!req.user.permessi?.includes('chiusura'))
     return res.status(403).json({ error: 'Non autorizzato' });
   try {
+    const doc = await db.collection('settings').findOne({ _id: 'chiusura' });
+    if (doc?.pin) {
+      const { pin } = req.body;
+      if (!pin || String(pin) !== String(doc.pin))
+        return res.status(403).json({ error: 'PIN non corretto' });
+    }
     await db.collection('settings').updateOne(
       { _id: 'chiusura' },
       { $set: { avviata: false } },
@@ -165,13 +186,59 @@ app.get('/api/chores', auth, async (req, res) => {
 // ── PATCH /api/chores/:id ────────────────────────────────────────────────────
 app.patch('/api/chores/:id', auth, async (req, res) => {
   try {
-    const { completato, sotto_task } = req.body;
+    const { completato, sotto_task, assegnato_a } = req.body;
     const update = {};
-    if (completato !== undefined) update.completato = completato;
-    if (sotto_task  !== undefined) update.sotto_task  = sotto_task;
+    if (completato   !== undefined) update.completato   = completato;
+    if (sotto_task   !== undefined) update.sotto_task   = sotto_task;
+    if (assegnato_a  !== undefined) update.assegnato_a  = assegnato_a || null;
     await db.collection(process.env.DB_COLLECTION || 'chores')
       .updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/accounts ────────────────────────────────────────────────────────
+app.get('/api/accounts', auth, async (req, res) => {
+  try {
+    const accounts = await db.collection('accounts')
+      .find({ attivo: true }, { projection: { _id: 1, nome: 1, cognome: 1, ruolo: 1 } })
+      .sort({ nome: 1 })
+      .toArray();
+    res.json(accounts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/prodotti-disponibili ────────────────────────────────────────────
+app.get('/api/prodotti-disponibili', auth, async (req, res) => {
+  try {
+    const list = await db.collection('prodotti_disponibili').find().sort({ categoria: 1, name: 1 }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/prodotti/sync-categorie ────────────────────────────────────────
+// Aggiorna la categoria dei prodotti esistenti basandosi su prodotti_disponibili
+app.post('/api/prodotti/sync-categorie', auth, async (req, res) => {
+  try {
+    const disponibili = await db.collection('prodotti_disponibili').find().toArray();
+    const nameToCategoria = {};
+    for (const d of disponibili) nameToCategoria[d.name] = d.categoria;
+
+    let updated = 0;
+    for (const [name, categoria] of Object.entries(nameToCategoria)) {
+      const result = await db.collection('prodotti').updateMany(
+        { name, $or: [{ categoria: { $exists: false } }, { categoria: null }] },
+        { $set: { categoria } }
+      );
+      updated += result.modifiedCount;
+    }
+    res.json({ ok: true, updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -190,9 +257,11 @@ app.get('/api/prodotti', auth, async (req, res) => {
 // ── POST /api/prodotti ───────────────────────────────────────────────────────
 app.post('/api/prodotti', auth, async (req, res) => {
   try {
-    const { name, count } = req.body;
-    const result = await db.collection('prodotti').insertOne({ name, count, createdAt: new Date() });
-    res.json({ _id: result.insertedId, name, count });
+    const { name, count, categoria, prodotti_legati } = req.body;
+    const doc = { name, count, categoria: categoria ?? null, createdAt: new Date() };
+    if (prodotti_legati && Array.isArray(prodotti_legati)) doc.prodotti_legati = prodotti_legati;
+    const result = await db.collection('prodotti').insertOne(doc);
+    res.json({ _id: result.insertedId, name, count, categoria: categoria ?? null, prodotti_legati: doc.prodotti_legati });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -201,8 +270,10 @@ app.post('/api/prodotti', auth, async (req, res) => {
 // ── PATCH /api/prodotti/:id ──────────────────────────────────────────────────
 app.patch('/api/prodotti/:id', auth, async (req, res) => {
   try {
-    const { count } = req.body;
-    await db.collection('prodotti').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { count } });
+    const { count, categoria } = req.body;
+    const update = { count };
+    if (categoria !== undefined) update.categoria = categoria;
+    await db.collection('prodotti').updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -327,6 +398,77 @@ app.post('/api/utenti/avatar', auth, upload.single('avatar'), async (req, res) =
       { $set: { avatarUrl: result.secure_url } }
     );
     res.json({ avatarUrl: result.secure_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/dolci ───────────────────────────────────────────────────────────
+app.get('/api/dolci', auth, async (req, res) => {
+  try {
+    const dolci = await db.collection('dolci').find().sort({ createdAt: 1 }).toArray();
+    res.json(dolci);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/dolci ──────────────────────────────────────────────────────────
+app.post('/api/dolci', auth, async (req, res) => {
+  if (req.user.ruolo !== 'admin') return res.status(403).json({ error: 'Solo admin' });
+  try {
+    const { nome } = req.body;
+    if (!nome) return res.status(400).json({ error: 'nome obbligatorio' });
+    const result = await db.collection('dolci').insertOne({ nome, createdAt: new Date() });
+    res.json({ _id: result.insertedId, nome });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/dolci/:id ────────────────────────────────────────────────────
+app.delete('/api/dolci/:id', auth, async (req, res) => {
+  if (req.user.ruolo !== 'admin') return res.status(403).json({ error: 'Solo admin' });
+  try {
+    await db.collection('dolci').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/fidelity/config ─────────────────────────────────────────────────
+app.get('/api/fidelity/config', auth, async (req, res) => {
+  try {
+    const doc = await db.collection('settings').findOne({ _id: 'fidelity' });
+    res.json({ numSlots: doc?.numSlots ?? 6, selectedIds: doc?.selectedIds ?? [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/fidelity/config ───────────────────────────────────────────────
+app.patch('/api/fidelity/config', auth, async (req, res) => {
+  if (req.user.ruolo !== 'admin') return res.status(403).json({ error: 'Solo admin' });
+  try {
+    const { numSlots, selectedIds } = req.body;
+    const update = {};
+    if (numSlots !== undefined) {
+      if (!Number.isInteger(numSlots) || numSlots < 1)
+        return res.status(400).json({ error: 'numSlots deve essere un intero >= 1' });
+      update.numSlots = numSlots;
+    }
+    if (selectedIds !== undefined) {
+      if (!Array.isArray(selectedIds))
+        return res.status(400).json({ error: 'selectedIds deve essere un array' });
+      update.selectedIds = selectedIds;
+    }
+    await db.collection('settings').updateOne(
+      { _id: 'fidelity' },
+      { $set: update },
+      { upsert: true }
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

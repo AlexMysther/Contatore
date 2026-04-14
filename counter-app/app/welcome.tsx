@@ -18,13 +18,14 @@ export default function Welcome() {
   }, []);
 
   const roleLabel = user?.ruolo === 'admin' ? 'Amministratore' : 'Staff';
+  const isAH = user?.username === 'AH';
   const foto = user?.avatarUrl ? { uri: user.avatarUrl } : FOTO_DEFAULT;
 
   return (
     <View style={s.container}>
       <Animated.View style={[s.card, { opacity }]}>
         <Image source={foto} style={s.avatar} />
-        <Text style={s.benvenuto}>Ciao, {user?.nome?.split(' ')[0]}!</Text>
+        <Text style={s.benvenuto}>{isAH ? 'Lunga vita al Presidente XI' : `Ciao, ${user?.nome?.split(' ')[0]}!`}</Text>
         <View style={s.badge}>
           <Text style={s.badgeText}>{roleLabel}</Text>
         </View>

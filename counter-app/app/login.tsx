@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
 const LOGO = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
@@ -14,6 +15,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError]       = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
+  const [showPwd, setShowPwd]   = useState(false);
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -50,15 +52,20 @@ export default function Login() {
           />
 
           <Text style={s.label}>Password</Text>
-          <TextInput
-            style={s.input}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder="••••••••"
-            placeholderTextColor="#bbb"
-            onSubmitEditing={handleLogin}
-          />
+          <View style={s.pwdRow}>
+            <TextInput
+              style={[s.input, s.pwdInput]}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPwd}
+              placeholder="••••••••"
+              placeholderTextColor="#bbb"
+              onSubmitEditing={handleLogin}
+            />
+            <TouchableOpacity style={s.eyeBtn} onPress={() => setShowPwd(v => !v)}>
+              <Ionicons name={showPwd ? 'eye-off' : 'eye'} size={20} color="#aaa" />
+            </TouchableOpacity>
+          </View>
 
           {error && <Text style={s.error}>{error}</Text>}
 
@@ -96,6 +103,11 @@ const s = StyleSheet.create({
     fontSize: 15, color: '#1a1a1a', backgroundColor: '#fafafa',
     marginBottom: 8,
   },
+
+  pwdRow:   { position: 'relative', justifyContent: 'center', marginBottom: 8 },
+  pwdInput: { marginBottom: 0, paddingRight: 44 },
+  eyeBtn:   { position: 'absolute', right: 12, padding: 4 },
+  eyeIcon:  {},
 
   error: { fontSize: 13, color: RED, textAlign: 'center' },
 
