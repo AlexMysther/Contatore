@@ -212,6 +212,38 @@ app.get('/api/accounts', auth, async (req, res) => {
   }
 });
 
+// ── GET /api/prodotti-disponibili ────────────────────────────────────────────
+app.get('/api/prodotti-disponibili', auth, async (req, res) => {
+  try {
+    const list = await db.collection('prodotti_disponibili').find().sort({ categoria: 1, name: 1 }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/prodotti/sync-categorie ────────────────────────────────────────
+// Aggiorna la categoria dei prodotti esistenti basandosi su prodotti_disponibili
+app.post('/api/prodotti/sync-categorie', auth, async (req, res) => {
+  try {
+    const disponibili = await db.collection('prodotti_disponibili').find().toArray();
+    const nameToCategoria = {};
+    for (const d of disponibili) nameToCategoria[d.name] = d.categoria;
+
+    let updated = 0;
+    for (const [name, categoria] of Object.entries(nameToCategoria)) {
+      const result = await db.collection('prodotti').updateMany(
+        { name, $or: [{ categoria: { $exists: false } }, { categoria: null }] },
+        { $set: { categoria } }
+      );
+      updated += result.modifiedCount;
+    }
+    res.json({ ok: true, updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/prodotti ────────────────────────────────────────────────────────
 app.get('/api/prodotti', auth, async (req, res) => {
   try {
@@ -225,9 +257,11 @@ app.get('/api/prodotti', auth, async (req, res) => {
 // ── POST /api/prodotti ───────────────────────────────────────────────────────
 app.post('/api/prodotti', auth, async (req, res) => {
   try {
-    const { name, count } = req.body;
-    const result = await db.collection('prodotti').insertOne({ name, count, createdAt: new Date() });
-    res.json({ _id: result.insertedId, name, count });
+    const { name, count, categoria, prodotti_legati } = req.body;
+    const doc = { name, count, categoria: categoria ?? null, createdAt: new Date() };
+    if (prodotti_legati && Array.isArray(prodotti_legati)) doc.prodotti_legati = prodotti_legati;
+    const result = await db.collection('prodotti').insertOne(doc);
+    res.json({ _id: result.insertedId, name, count, categoria: categoria ?? null, prodotti_legati: doc.prodotti_legati });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -236,8 +270,10 @@ app.post('/api/prodotti', auth, async (req, res) => {
 // ── PATCH /api/prodotti/:id ──────────────────────────────────────────────────
 app.patch('/api/prodotti/:id', auth, async (req, res) => {
   try {
-    const { count } = req.body;
-    await db.collection('prodotti').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { count } });
+    const { count, categoria } = req.body;
+    const update = { count };
+    if (categoria !== undefined) update.categoria = categoria;
+    await db.collection('prodotti').updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

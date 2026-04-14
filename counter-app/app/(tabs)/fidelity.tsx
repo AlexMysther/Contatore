@@ -280,7 +280,7 @@ const dd = StyleSheet.create({
 
 // ── Stili pagina ──────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container:        { flex: 1, backgroundColor: '#f5f5f5' },
+  container:        { flex: 1, backgroundColor: '#f5f5f5', paddingTop: 24 },
   center:           { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
   title:            { fontSize: 26, fontWeight: '700', color: '#1a1a1a' },

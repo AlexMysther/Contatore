@@ -472,7 +472,7 @@ const GREEN = '#27ae60';
 const RED   = '#c0392b';
 
 const s = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#f2f2f2' },
+  container:     { flex: 1, backgroundColor: '#f2f2f2', paddingTop: 24 },
   center:        { justifyContent: 'center', alignItems: 'center', gap: 16 },
 
   // Start screen

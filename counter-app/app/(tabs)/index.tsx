@@ -1,53 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  FlatList, StyleSheet, SafeAreaView, Modal, Pressable,
-  KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator, Alert,
+  FlatList, StyleSheet, Modal, Pressable,
+  KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useNav } from '@/context/NavContext';
 
 const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
-const AVAILABLE_PRODUCTS = [
-  'Frittatine Classiche',
-  'Frittatine di Patate',
-  'Crocchè di Patate',
-  'Cheesecake',
-  'Tortino al Cioccolato',
-  'Tiramisù',
-  'Pastiera',
-];
 
 const API_URL  = 'http://localhost:3000/api/prodotti';
+const API_DISPONIBILI = 'http://localhost:3000/api/prodotti-disponibili';
 const POLL_MS  = 5000;
 
-type Item    = { _id: string; name: string; count: number };
-type Pending = Record<string, number | 'delete'>;
-type Confirm = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean; delta?: number } | null;
+type Item      = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
+type Disponibile = { _id: string; name: string; categoria: string; prodotti_legati?: string[] };
+type Pending   = Record<string, number | 'delete'>;
+type Confirm   = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean; delta?: number } | null;
 
 export default function App() {
-  const { user, logout, updateAvatar } = useAuth();
+  const { user, logout } = useAuth();
+  const { setHideNav } = useNav();
   const token = user?.token ?? '';
 
   const [items, setItems]           = useState<Item[]>([]);
+  const [disponibili, setDisponibili] = useState<Disponibile[]>([]);
   const [loading, setLoading]       = useState(true);
   const [pending, setPending]       = useState<Pending>({});
   const [modalVisible, setModalVisible] = useState(false);
   const [confirm, setConfirm]       = useState<Confirm>(null);
-  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Disponibile | null>(null);
   const [customName, setCustomName] = useState('');
+  const [customCategoria, setCustomCategoria] = useState<string | null>(null);
+  const [modalTab, setModalTab] = useState<'prodotti' | 'ingredienti'>('prodotti');
   const [inputQty, setInputQty]     = useState('');
   const [addError, setAddError]     = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const pickAvatar = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permesso negato', 'Serve accesso alla galleria.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 });
-    if (result.canceled) return;
-    const err = await updateAvatar(result.assets[0].uri);
-    if (err) Alert.alert('Errore', err);
-  };
 
   const headers = () => ({
     'Content-Type': 'application/json',
@@ -70,13 +59,27 @@ export default function App() {
 
   useEffect(() => {
     if (!token) return;
+    fetch(API_DISPONIBILI, { headers: headers() })
+      .then(r => r.json())
+      .then(data => setDisponibili(Array.isArray(data) ? data : []));
     fetchItems(true);
     pollRef.current = setInterval(() => fetchItems(false), POLL_MS);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [token]);
 
+  const catColor: Record<string, { bg: string; border: string; text: string }> = {
+    antipasto:    { bg: '#fdecea', border: '#ef9a9a', text: '#c0392b' },
+    pizza:        { bg: '#e8f5e9', border: '#a5d6a7', text: '#27ae60' },
+    dolci:        { bg: '#e3f2fd', border: '#90caf9', text: '#1565c0' },
+    bevanda:      { bg: '#f3e5f5', border: '#ce93d8', text: '#7b1fa2' },
+    'M.autunno':  { bg: '#fff3e0', border: '#ffb74d', text: '#e65100' },
+    ingrediente:  { bg: '#f1f8e9', border: '#aed581', text: '#558b2f' },
+  };
+
   const hasPending  = Object.keys(pending).length > 0;
-  const isCustom    = selectedProduct === '__custom__';
+  const isCustom    = selectedProduct?.name === '__custom__';
+
+  useEffect(() => { setHideNav(hasPending); }, [hasPending]);
 
   const displayCount = (item: Item): number =>
     typeof pending[item._id] === 'number' ? (pending[item._id] as number) : item.count;
@@ -84,19 +87,23 @@ export default function App() {
   const openModal = () => {
     setSelectedProduct(null);
     setCustomName('');
+    setCustomCategoria(null);
     setInputQty('');
     setAddError(null);
+    setModalTab('prodotti');
     setModalVisible(true);
   };
 
   const confirmAdd = () => {
     if (!selectedProduct) { setAddError('Seleziona un prodotto dalla lista.'); return; }
-    const name = isCustom ? customName.trim() : selectedProduct;
+    const name = isCustom ? customName.trim() : selectedProduct.name;
+    const categoria = isCustom ? customCategoria : selectedProduct.categoria;
+    const prodotti_legati = isCustom ? undefined : selectedProduct.prodotti_legati;
     if (!name) { setAddError('Inserisci il nome del prodotto personalizzato.'); return; }
     const qty = parseInt(inputQty, 10);
     if (isNaN(qty) || qty < 0) { setAddError('Inserisci un numero intero positivo.'); return; }
 
-    fetch(API_URL, { method: 'POST', headers: headers(), body: JSON.stringify({ name, count: qty }) })
+    fetch(API_URL, { method: 'POST', headers: headers(), body: JSON.stringify({ name, count: qty, categoria, prodotti_legati }) })
       .then(r => r.json())
       .then((newItem: Item) => setItems(prev => [...prev, newItem]));
 
@@ -188,21 +195,11 @@ export default function App() {
 
       <Image source={BANNER_IMAGE} style={s.banner} resizeMode="cover" />
       <View style={s.titleRow}>
-        <View style={s.titleLeft}>
-          <TouchableOpacity onPress={pickAvatar}>
-            {user?.avatarUrl
-              ? <Image source={{ uri: user.avatarUrl }} style={s.avatar} />
-              : <View style={s.avatarPlaceholder}><Text style={s.avatarInitial}>{user?.nome?.[0]?.toUpperCase() ?? '?'}</Text></View>
-            }
-          </TouchableOpacity>
-          <View>
-            <Text style={s.title}>Contatore Prodotti</Text>
-            {user && <Text style={s.userLabel}>{user.nome}</Text>}
-          </View>
-        </View>
-        <TouchableOpacity style={s.logoutBtn} onPress={logout}>
-          <Text style={s.logoutText}>Esci</Text>
-        </TouchableOpacity>
+        <Text style={s.title}>Contatore Prodotti</Text>
+        {user && (user.avatarUrl
+          ? <Image source={{ uri: user.avatarUrl }} style={s.avatar} />
+          : <View style={s.avatarPlaceholder}><Text style={s.avatarInitial}>{user.nome?.[0]?.toUpperCase() ?? '?'}</Text></View>
+        )}
       </View>
 
       <TouchableOpacity style={s.addBtn} onPress={openModal}>
@@ -225,15 +222,23 @@ export default function App() {
           const activeId  = Object.keys(pending).find(k => typeof pending[k] === 'number');
           const isLocked  = !!activeId && activeId !== item._id;
           return (
-            <View style={[s.card, isDeleted && s.cardDeleted, isDirty && !isDeleted && s.cardDirty, isSoldOut && s.cardSoldOut, isLocked && s.cardLocked]}>
+            <View style={[s.card, !isDeleted && !isDirty && !isSoldOut && displayCount(item) > 0 && s.cardHasQty, isDeleted && s.cardDeleted, isDirty && !isDeleted && s.cardDirty, isSoldOut && s.cardSoldOut, isLocked && s.cardLocked]}>
               <TouchableOpacity onPress={() => remove(item._id)} disabled={isDeleted || isLocked}>
                 <Text style={[s.del, isDeleted && s.delActive]}>✕</Text>
               </TouchableOpacity>
               <View style={s.cardBody}>
                 <View style={s.nameRow}>
                   <Text style={[s.name, isDeleted && s.nameDeleted]}>{item.name}</Text>
+                  {item.categoria && (() => { const c = catColor[item.categoria!] ?? catColor.antipasto; return <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}><Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text></View>; })()}
                   {isSoldOut && <View style={s.soldOutBadge}><Text style={s.soldOutText}>Finito</Text></View>}
                 </View>
+                {item.prodotti_legati && item.prodotti_legati.length > 0 && (
+                  <View style={s.legatiBox}>
+                    {item.prodotti_legati.map(p => (
+                      <Text key={p} style={s.legatiItem}>• {p}</Text>
+                    ))}
+                  </View>
+                )}
                 {diff !== 0 && (
                   <Text style={[s.diff, diff > 0 ? s.diffPos : s.diffNeg]}>
                     {diff > 0 ? `+${diff}` : `${diff}`} rispetto all'originale ({item.count})
@@ -285,25 +290,39 @@ export default function App() {
               <Text style={s.dialogTitle}>Nuovo elemento</Text>
 
               <Text style={s.label}>Prodotto</Text>
+              <View style={s.tabRow}>
+                {(['prodotti', 'ingredienti'] as const).map(tab => (
+                  <TouchableOpacity
+                    key={tab}
+                    style={[s.tabBtn, modalTab === tab && s.tabBtnActive]}
+                    onPress={() => { setModalTab(tab); setSelectedProduct(null); }}
+                  >
+                    <Text style={[s.tabBtnText, modalTab === tab && s.tabBtnTextActive]}>
+                      {tab === 'prodotti' ? 'Prodotti' : 'Ingredienti'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <ScrollView style={s.productList} nestedScrollEnabled>
-                {AVAILABLE_PRODUCTS.map(product => {
-                  const alreadyAdded = items.some(i => i.name === product);
+                {disponibili.filter(p => modalTab === 'ingredienti' ? p.categoria === 'ingrediente' : p.categoria !== 'ingrediente').map(product => {
+                  const alreadyAdded = items.some(i => i.name === product.name);
+                  const isSelected = selectedProduct?._id === product._id;
                   return (
                     <TouchableOpacity
-                      key={product}
-                      style={[s.productItem, selectedProduct === product && s.productItemSelected, alreadyAdded && s.productItemDisabled]}
+                      key={String(product._id)}
+                      style={[s.productItem, isSelected && s.productItemSelected, alreadyAdded && s.productItemDisabled]}
                       onPress={() => !alreadyAdded && setSelectedProduct(product)}
                       disabled={alreadyAdded}
                     >
-                      <Text style={[s.productItemText, selectedProduct === product && s.productItemTextSelected, alreadyAdded && s.productItemTextDisabled]}>
-                        {product}{alreadyAdded ? ' (già aggiunto)' : ''}
+                      <Text style={[s.productItemText, isSelected && s.productItemTextSelected, alreadyAdded && s.productItemTextDisabled]}>
+                        {product.name}{alreadyAdded ? ' (già aggiunto)' : ''}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
                 <TouchableOpacity
                   style={[s.productItem, isCustom && s.productItemSelected]}
-                  onPress={() => setSelectedProduct('__custom__')}
+                  onPress={() => setSelectedProduct({ _id: '__custom__', name: '__custom__', categoria: '' })}
                 >
                   <Text style={[s.productItemText, isCustom && s.productItemTextSelected]}>
                     ✏️ Personalizzato
@@ -312,13 +331,31 @@ export default function App() {
               </ScrollView>
 
               {isCustom && (
-                <TextInput
-                  style={s.dialogInput}
-                  placeholder="Nome prodotto personalizzato"
-                  value={customName}
-                  onChangeText={setCustomName}
-                  autoFocus
-                />
+                <>
+                  <TextInput
+                    style={s.dialogInput}
+                    placeholder="Nome prodotto personalizzato"
+                    value={customName}
+                    onChangeText={setCustomName}
+                    autoFocus
+                  />
+                  <Text style={s.label}>Categoria</Text>
+                  <View style={s.catChipRow}>
+                    {(['antipasto', 'pizza', 'dolci', 'bevanda', 'M.autunno', 'ingrediente'] as const).map(cat => {
+                      const c = catColor[cat];
+                      const sel = customCategoria === cat;
+                      return (
+                        <TouchableOpacity
+                          key={cat}
+                          style={[s.catChip, { borderColor: c.border }, sel && { backgroundColor: c.bg }]}
+                          onPress={() => setCustomCategoria(cat)}
+                        >
+                          <Text style={[s.catChipText, { color: sel ? c.text : '#555' }, sel && { fontWeight: '600' }]}>{cat}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
               )}
 
               <Text style={s.label}>Quantità iniziale</Text>
@@ -358,7 +395,7 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#fff' },
+  container:    { flex: 1, backgroundColor: '#fff', paddingTop: 24 },
   center:       { justifyContent: 'center', alignItems: 'center' },
   banner:       { width: '100%', height: 180 },
   titleRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
@@ -373,18 +410,21 @@ const s = StyleSheet.create({
   addBtn:       { backgroundColor: '#c0392b', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 16, marginHorizontal: 16 },
   addBtnText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
   card:         { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, boxShadow: '0px 2px 4px rgba(0,0,0,0.06)', elevation: 2 } as any,
+  cardHasQty:   { borderWidth: 1, borderColor: '#1a1a1a' },
   cardDirty:    { borderWidth: 1.5, borderColor: '#c0392b' },
   cardDeleted:  { backgroundColor: '#fff0f0', borderWidth: 1.5, borderColor: '#c0392b' },
   del:          { color: '#ccc', fontSize: 14 },
   delActive:    { color: '#c0392b' },
   cardBody:     { flex: 1, gap: 2 },
-  name:         { fontSize: 16, color: '#1a1a1a' },
+  name:         { fontSize: 20, color: '#1a1a1a', fontWeight: '500' },
   nameDeleted:  { color: '#aaa', textDecorationLine: 'line-through' },
   diff:         { fontSize: 12, fontWeight: '600' },
   diffPos:      { color: '#27ae60' },
   diffNeg:      { color: '#c0392b' },
   cardSoldOut:  { backgroundColor: '#fff7e6', borderWidth: 1.5, borderColor: '#e67e22' },
   nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  catBadge:     { backgroundColor: '#eef2ff', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: '#c5cae9' },
+  catBadgeText: { fontSize: 11, fontWeight: '600', color: '#5c6bc0' },
   soldOutBadge: { backgroundColor: '#e67e22', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   soldOutText:  { fontSize: 11, fontWeight: '700', color: '#fff' },
   deletedLabel: { fontSize: 13, color: '#c0392b', fontWeight: '600' },
@@ -416,13 +456,26 @@ const s = StyleSheet.create({
   confirmText:  { fontSize: 15, color: '#fff', fontWeight: '600' },
   destructiveBtn: { backgroundColor: '#c0392b' },
   addErrorText: { fontSize: 13, color: '#c0392b', textAlign: 'center' },
+  tabRow:           { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  tabBtn:           { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center', backgroundColor: '#f0f0f0' },
+  tabBtnActive:     { backgroundColor: '#c0392b' },
+  tabBtnText:       { fontSize: 14, color: '#555', fontWeight: '600' },
+  tabBtnTextActive: { color: '#fff' },
   productList:          { maxHeight: 160, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, marginBottom: 4 },
   productItem:          { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   productItemSelected:  { backgroundColor: '#c0392b' },
-  productItemText:      { fontSize: 15, color: '#1a1a1a' },
+  productItemText:      { fontSize: 16, color: '#1a1a1a' },
   productItemTextSelected: { color: '#fff', fontWeight: '600' },
   productItemDisabled:  { backgroundColor: '#f9f9f9' },
   productItemTextDisabled: { color: '#bbb' },
+  legatiBox:    { backgroundColor: '#f8f9fa', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#e0e0e0', marginTop: 6, marginBottom: 4 },
+  legatiTitle:  { fontSize: 12, color: '#888', fontWeight: '600', marginBottom: 4 },
+  legatiItem:   { fontSize: 13, color: '#444', lineHeight: 20, fontWeight: '700' },
+  catChipRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  catChip:          { borderWidth: 1, borderColor: '#ddd', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  catChipSel:       { backgroundColor: '#c0392b', borderColor: '#c0392b' },
+  catChipText:      { fontSize: 13, color: '#555' },
+  catChipTextSel:   { color: '#fff', fontWeight: '600' },
   qtyRow:       { flexDirection: 'row', gap: 8, alignItems: 'center' },
   qtyInput:     { flex: 1, marginBottom: 0 },
   finitoBtn:    { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
