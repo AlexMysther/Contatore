@@ -416,7 +416,7 @@ const s = StyleSheet.create({
   del:          { color: '#ccc', fontSize: 14 },
   delActive:    { color: '#c0392b' },
   cardBody:     { flex: 1, gap: 2 },
-  name:         { fontSize: 20, color: '#1a1a1a', fontWeight: '500' },
+  name:         { fontSize: 20, color: '#1a1a1a', fontWeight: '500', flex: 1 },
   nameDeleted:  { color: '#aaa', textDecorationLine: 'line-through' },
   diff:         { fontSize: 12, fontWeight: '600' },
   diffPos:      { color: '#27ae60' },
