@@ -147,8 +147,7 @@ export default function Chiusura() {
     }
   };
 
-  const canCheck = (chore: Chore) =>
-    !!chore.assegnato_a && chore.assegnato_a === user?.nome;
+  const canCheck = (_chore: Chore) => true;
 
   const tapChore = (id: string, titolo: string, currentDone: boolean) => {
     const chore = chores.find(c => c._id === id);
