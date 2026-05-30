@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, Modal, Pressable,
   KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
@@ -12,8 +13,6 @@ const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
 
 const API_URL  = 'http://localhost:3000/api/prodotti';
 const API_DISPONIBILI = 'http://localhost:3000/api/prodotti-disponibili';
-const POLL_MS  = 5000;
-
 type Item      = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
 type Disponibile = { _id: string; name: string; categoria: string; prodotti_legati?: string[] };
 type Pending   = Record<string, number | 'delete'>;
@@ -27,6 +26,7 @@ export default function App() {
   const [items, setItems]           = useState<Item[]>([]);
   const [disponibili, setDisponibili] = useState<Disponibile[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending]       = useState<Pending>({});
   const [modalVisible, setModalVisible] = useState(false);
   const [confirm, setConfirm]       = useState<Confirm>(null);
@@ -36,35 +36,42 @@ export default function App() {
   const [modalTab, setModalTab] = useState<'prodotti' | 'ingredienti'>('prodotti');
   const [inputQty, setInputQty]     = useState('');
   const [addError, setAddError]     = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = () => ({
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
   });
 
-  const fetchItems = (isFirst = false) => {
-    fetch(API_URL, { headers: headers() })
-      .then(r => {
-        if (r.status === 401) { logout(); return null; }
-        return r.json();
-      })
-      .then((data: Item[] | null) => {
-        if (data === null) return;
-        setItems(Array.isArray(data) ? data : []);
-        if (isFirst) setLoading(false);
-      })
-      .catch(() => { if (isFirst) setLoading(false); });
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const [itemsRes, dispRes] = await Promise.all([
+        fetch(API_URL, { headers: headers() }),
+        fetch(API_DISPONIBILI, { headers: headers() }),
+      ]);
+      if (itemsRes.status === 401) { logout(); return; }
+      const [itemsData, dispData] = await Promise.all([itemsRes.json(), dispRes.json()]);
+      setItems(Array.isArray(itemsData) ? itemsData : []);
+      setDisponibili(Array.isArray(dispData) ? dispData : []);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
     if (!token) return;
-    fetch(API_DISPONIBILI, { headers: headers() })
-      .then(r => r.json())
-      .then(data => setDisponibili(Array.isArray(data) ? data : []));
-    fetchItems(true);
-    pollRef.current = setInterval(() => fetchItems(false), POLL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    Promise.all([
+      fetch(API_URL, { headers: headers() }),
+      fetch(API_DISPONIBILI, { headers: headers() }),
+    ])
+      .then(async ([itemsRes, dispRes]) => {
+        if (itemsRes.status === 401) { logout(); return; }
+        const [itemsData, dispData] = await Promise.all([itemsRes.json(), dispRes.json()]);
+        setItems(Array.isArray(itemsData) ? itemsData : []);
+        setDisponibili(Array.isArray(dispData) ? dispData : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [token]);
 
   const catColor: Record<string, { bg: string; border: string; text: string }> = {
@@ -207,6 +214,7 @@ export default function App() {
       </TouchableOpacity>
 
       <FlatList
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#c0392b']} tintColor="#c0392b" />}
         data={[...items].sort((a, b) => {
           const aFinito = a.count === 0;
           const bFinito = b.count === 0;
@@ -221,8 +229,16 @@ export default function App() {
           const isSoldOut = !isDeleted && item.count === 0;
           const activeId  = Object.keys(pending).find(k => typeof pending[k] === 'number');
           const isLocked  = !!activeId && activeId !== item._id;
+          const c = catColor[item.categoria ?? ''] ?? catColor.antipasto;
           return (
-            <View style={[s.card, !isDeleted && !isDirty && !isSoldOut && displayCount(item) > 0 && s.cardHasQty, isDeleted && s.cardDeleted, isDirty && !isDeleted && s.cardDirty, isSoldOut && s.cardSoldOut, isLocked && s.cardLocked]}>
+            <View style={[
+              s.card,
+              !isDeleted && { backgroundColor: c.bg, borderWidth: 1.5, borderColor: c.text },
+              isDeleted && s.cardDeleted,
+              isDirty && !isDeleted && s.cardDirty,
+
+              isLocked && s.cardLocked,
+            ]}>
               <TouchableOpacity onPress={() => remove(item._id)} disabled={isDeleted || isLocked}>
                 <Text style={[s.del, isDeleted && s.delActive]}>✕</Text>
               </TouchableOpacity>
@@ -307,14 +323,20 @@ export default function App() {
                 {disponibili.filter(p => modalTab === 'ingredienti' ? p.categoria === 'ingrediente' : p.categoria !== 'ingrediente').map(product => {
                   const alreadyAdded = items.some(i => i.name === product.name);
                   const isSelected = selectedProduct?._id === product._id;
+                  const c = catColor[product.categoria] ?? catColor.antipasto;
                   return (
                     <TouchableOpacity
                       key={String(product._id)}
-                      style={[s.productItem, isSelected && s.productItemSelected, alreadyAdded && s.productItemDisabled]}
+                      style={[
+                        s.productItem,
+                        !isSelected && !alreadyAdded && { backgroundColor: c.bg, borderLeftWidth: 3, borderLeftColor: c.border },
+                        isSelected && s.productItemSelected,
+                        alreadyAdded && s.productItemDisabled,
+                      ]}
                       onPress={() => !alreadyAdded && setSelectedProduct(product)}
                       disabled={alreadyAdded}
                     >
-                      <Text style={[s.productItemText, isSelected && s.productItemTextSelected, alreadyAdded && s.productItemTextDisabled]}>
+                      <Text style={[s.productItemText, !isSelected && !alreadyAdded && { color: c.text }, isSelected && s.productItemTextSelected, alreadyAdded && s.productItemTextDisabled]}>
                         {product.name}{alreadyAdded ? ' (già aggiunto)' : ''}
                       </Text>
                     </TouchableOpacity>
