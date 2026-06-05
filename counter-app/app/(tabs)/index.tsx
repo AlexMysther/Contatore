@@ -110,12 +110,14 @@ export default function App() {
     const qty = parseInt(inputQty, 10);
     if (isNaN(qty) || qty < 0) { setAddError('Inserisci un numero intero positivo.'); return; }
 
-    fetch(API_URL, { method: 'POST', headers: headers(), body: JSON.stringify({ name, count: qty, categoria, prodotti_legati }) })
-      .then(r => r.json())
-      .then((newItem: Item) => setItems(prev => [...prev, newItem]));
-
+    const tempId = `temp_${Date.now()}`;
+    setItems(prev => [...prev, { _id: tempId, name, count: qty, categoria: categoria ?? null, ...(prodotti_legati ? { prodotti_legati } : {}) }]);
     setAddError(null);
     setModalVisible(false);
+
+    fetch(API_URL, { method: 'POST', headers: headers(), body: JSON.stringify({ name, count: qty, categoria, prodotti_legati }) })
+      .then(r => r.json())
+      .then((newItem: Item) => setItems(prev => prev.map(i => i._id === tempId ? newItem : i)));
   };
 
   const change = (id: string, delta: number) => {
