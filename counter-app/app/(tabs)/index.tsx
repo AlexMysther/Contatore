@@ -11,8 +11,8 @@ import { useNav } from '@/context/NavContext';
 
 const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
 
-const API_URL  = 'http://localhost:3000/api/prodotti';
-const API_DISPONIBILI = 'http://localhost:3000/api/prodotti-disponibili';
+const API_URL  = 'https://contatore-production.up.railway.app/api/prodotti';
+const API_DISPONIBILI = 'https://contatore-production.up.railway.app/api/prodotti-disponibili';
 type Item      = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
 type Disponibile = { _id: string; name: string; categoria: string; prodotti_legati?: string[] };
 type Pending   = Record<string, number | 'delete'>;

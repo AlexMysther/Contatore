@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = 'https://contatore-production.up.railway.app/api';
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
 type Categoria    = { _id: string; nome: string; order: number };
@@ -93,7 +93,8 @@ export default function SegnalazioniScreen() {
     })
       .then(r => r.json())
       .then(newSeg => {
-        setList(prev => [newSeg, ...prev]);
+        const id = String(newSeg._id);
+        setList(prev => prev.find(s => s._id === id) ? prev : [{ ...newSeg, _id: id }, ...prev]);
         setModalVisible(false);
       })
       .catch(() => setError('Errore di rete'))
