@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, Modal, Pressable,
   StyleSheet, ActivityIndicator, LayoutAnimation, Platform, UIManager, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useWs } from '@/context/WsContext';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 if (Platform.OS === 'android') {
@@ -13,7 +14,6 @@ if (Platform.OS === 'android') {
 
 const API_BASE = 'http://localhost:3000';
 const API_URL  = `${API_BASE}/api/chores`;
-const POLL_MS  = 5000;
 
 type SottoTask = { titolo: string; descrizione?: string; completato: boolean };
 
@@ -40,6 +40,7 @@ function mergeRemote(remote: Omit<Chore, '_expanded'>[], local: Chore[]): Chore[
 
 export default function Chiusura() {
   const { user } = useAuth();
+  const { lastMessage } = useWs();
   const canEdit = user?.permessi?.includes('chiusura') ?? false;
   const [avviata, setAvviata] = useState(false);
   const [chores, setChores]   = useState<Chore[]>([]);
@@ -52,8 +53,6 @@ export default function Chiusura() {
   const [resetPin, setResetPin]           = useState('');
   const [resetPinError, setResetPinError] = useState<string | null>(null);
   const [resetLoading, setResetLoading]   = useState(false);
-  const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null);
-  const statoRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
@@ -88,26 +87,41 @@ export default function Chiusura() {
       .catch(() => {});
   }, [user?.token]);
 
-  // Poll stato chiusura per tutti
+  // Fetch iniziale dello stato (una tantum, poi il WS mantiene aggiornato)
   useEffect(() => {
     if (!user?.token) return;
     fetchStato();
-    statoRef.current = setInterval(fetchStato, POLL_MS);
-    return () => { if (statoRef.current) clearInterval(statoRef.current); };
   }, [user?.token]);
 
-  // Carica chores solo quando avviata
+  // Carica chores solo quando avviata (caricamento iniziale, poi il WS aggiorna i singoli chore)
   useEffect(() => {
     if (!avviata || !user?.token) {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-      if (!avviata) setChores([]);
+      if (!avviata) {
+        setChores([]);
+        setConfirmReset(false);
+        setResetPin('');
+        setResetPinError(null);
+      }
       return;
     }
     setLoading(true);
     fetchChores(true);
-    pollRef.current = setInterval(() => fetchChores(false), POLL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [avviata, user?.token]);
+
+  // Gestione messaggi WebSocket
+  useEffect(() => {
+    if (!lastMessage) return;
+    if (lastMessage.type === 'chiusura') {
+      setAvviata(lastMessage.avviata);
+    } else if (lastMessage.type === 'chore') {
+      const incoming = lastMessage.chore as any;
+      const id = String(incoming._id);
+      setChores(prev => {
+        if (!prev.find(c => c._id === id)) return prev;
+        return prev.map(c => c._id === id ? { ...incoming, _id: id, _expanded: c._expanded } : c);
+      });
+    }
+  }, [lastMessage]);
 
   const patchChore = (id: string, body: object) =>
     fetch(`${API_URL}/${id}`, {
@@ -148,11 +162,9 @@ export default function Chiusura() {
     }
   };
 
-  const canCheck = (_chore: Chore) => true;
-
   const tapChore = (id: string, titolo: string, currentDone: boolean) => {
     const chore = chores.find(c => c._id === id);
-    if (!chore || !canCheck(chore)) return;
+    if (!chore) return;
     if (currentDone) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setChores(prev => prev.map(c => c._id === id ? { ...c, completato: false } : c));
@@ -164,7 +176,7 @@ export default function Chiusura() {
 
   const tapSotto = (choreId: string, idx: number, titolo: string, currentDone: boolean) => {
     const chore = chores.find(c => c._id === choreId);
-    if (!chore || !canCheck(chore)) return;
+    if (!chore) return;
     if (currentDone) {
       setChores(prev => {
         const next = prev.map(c => {
@@ -195,10 +207,13 @@ export default function Chiusura() {
   };
 
   const avvia = () => {
-    fetch(`${API_BASE}/api/chiusura/avvia`, { method: 'POST', headers: authHeaders() })
-      .then(() => setAvviata(true))
-      .catch(() => {});
+    setAvviata(true);
+    fetch(`${API_BASE}/api/chiusura/avvia`, { method: 'POST', headers: authHeaders() }).catch(() => {
+      setAvviata(false);
+    });
   };
+
+  const closeResetModal = () => { setConfirmReset(false); setResetPin(''); setResetPinError(null); };
 
   const reset = () => {
     if (resetLoading) return;
@@ -279,7 +294,6 @@ export default function Chiusura() {
   const doneCount = chores.filter(c => c.completato).length;
   const total     = chores.length;
   const progress  = total > 0 ? doneCount / total : 0;
-  const allDone   = total > 0 && doneCount === total;
 
   // ── Checklist ─────────────────────────────────────────────────────────────
   return (
@@ -331,8 +345,8 @@ export default function Chiusura() {
       </Modal>
 
       {/* Modale conferma spegni chiusura (con PIN) */}
-      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
-        <Pressable style={s.overlay} onPress={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
+      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => closeResetModal()}>
+        <Pressable style={s.overlay} onPress={() => closeResetModal()}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Spegni Chiusura?</Text>
             <Text style={s.dialogMsg}>Tutti i progressi verranno azzerati. Inserisci il PIN per confermare.</Text>
@@ -348,7 +362,7 @@ export default function Chiusura() {
             />
             {resetPinError && <Text style={s.pinErrorText}>{resetPinError}</Text>}
             <View style={s.dialogBtns}>
-              <TouchableOpacity style={s.dialogCancel} onPress={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
+              <TouchableOpacity style={s.dialogCancel} onPress={() => closeResetModal()}>
                 <Text style={s.dialogCancelLabel}>Annulla</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.dialogDanger, resetLoading && { opacity: 0.6 }]} onPress={reset} disabled={resetLoading}>
@@ -396,10 +410,10 @@ export default function Chiusura() {
               <View style={s.cardRow}>
                 <TouchableOpacity
                   onPress={() => tapChore(item._id, item.titolo, item.completato)}
-                  activeOpacity={canCheck(item) ? 0.7 : 1}
+                  activeOpacity={0.7}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <View style={[s.check, item.completato && s.checkDone, !canCheck(item) && !item.completato && s.checkDisabled]}>
+                  <View style={[s.check, item.completato && s.checkDone]}>
                     {item.completato && <Text style={s.checkMark}>✓</Text>}
                   </View>
                 </TouchableOpacity>
@@ -490,8 +504,6 @@ const s = StyleSheet.create({
   header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
   titleRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title:         { fontSize: 28, fontWeight: '700', color: '#1a1a1a' },
-  resetLink:     { fontSize: 14, color: RED },
-  readOnlyBadge: { fontSize: 14, color: '#aaa', fontWeight: '400' },
 
   progressWrap:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 10, marginBottom: 14 },
   progressBg:    { flex: 1, height: 8, backgroundColor: '#ddd', borderRadius: 4, overflow: 'hidden' },
@@ -506,7 +518,6 @@ const s = StyleSheet.create({
 
   check:         { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: RED, alignItems: 'center', justifyContent: 'center' },
   checkDone:     { backgroundColor: GREEN, borderColor: GREEN },
-  checkDisabled: { borderColor: '#ccc', opacity: 0.4 },
   checkMark:     { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   label:         { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
@@ -535,11 +546,7 @@ const s = StyleSheet.create({
   errorTitle:    { fontSize: 17, fontWeight: '600', color: '#1a1a1a' },
   errorDetail:   { fontSize: 13, color: '#888', textAlign: 'center', paddingHorizontal: 32 },
 
-  doneTitle:     { fontSize: 26, fontWeight: '700', color: '#1a1a1a' },
-  doneSubtitle:  { fontSize: 15, color: '#888' },
-
   redBtn:        { marginTop: 8, backgroundColor: RED, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 },
-  greenBtn:      { marginTop: 12, backgroundColor: GREEN, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
   btnLabel:      { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },

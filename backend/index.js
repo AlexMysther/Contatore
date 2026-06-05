@@ -1,7 +1,9 @@
 require('dotenv').config();
+const http       = require('http');
 const express    = require('express');
 const cors       = require('cors');
 const jwt        = require('jsonwebtoken');
+const { WebSocketServer } = require('ws');
 const { MongoClient, ObjectId } = require('mongodb');
 const cloudinary = require('cloudinary').v2;
 const multer     = require('multer');
@@ -14,7 +16,31 @@ cloudinary.config({
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-const app = express();
+const app    = express();
+const server = http.createServer(app);
+const wss    = new WebSocketServer({ server });
+
+const wsClients = new Set();
+
+wss.on('connection', (ws, req) => {
+  const token = new URL(req.url, 'http://localhost').searchParams.get('token');
+  try {
+    jwt.verify(token, JWT_SECRET);
+    wsClients.add(ws);
+    ws.on('close', () => wsClients.delete(ws));
+    ws.on('error', () => wsClients.delete(ws));
+  } catch {
+    ws.close(1008, 'Unauthorized');
+  }
+});
+
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  for (const ws of wsClients) {
+    if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
+
 app.use(cors({
   origin: true,
   credentials: true,
@@ -145,6 +171,7 @@ app.post('/api/chiusura/avvia', auth, async (req, res) => {
       { $set: { avviata: true } },
       { upsert: true }
     );
+    broadcast({ type: 'chiusura', avviata: true });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -167,6 +194,7 @@ app.post('/api/chiusura/reset', auth, async (req, res) => {
       { $set: { avviata: false } },
       { upsert: true }
     );
+    broadcast({ type: 'chiusura', avviata: false });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -191,8 +219,10 @@ app.patch('/api/chores/:id', auth, async (req, res) => {
     if (completato   !== undefined) update.completato   = completato;
     if (sotto_task   !== undefined) update.sotto_task   = sotto_task;
     if (assegnato_a  !== undefined) update.assegnato_a  = assegnato_a || null;
-    await db.collection(process.env.DB_COLLECTION || 'chores')
-      .updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
+    const col = db.collection(process.env.DB_COLLECTION || 'chores');
+    await col.updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
+    const chore = await col.findOne({ _id: new ObjectId(req.params.id) });
+    if (chore) broadcast({ type: 'chore', chore });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -326,7 +356,9 @@ app.post('/api/segnalazioni', auth, async (req, res) => {
       createdAt: new Date(),
     };
     const result = await db.collection('segnalazioni').insertOne(doc);
-    res.json({ _id: result.insertedId, ...doc });
+    const newSeg = { _id: result.insertedId, ...doc };
+    broadcast({ type: 'segnalazione_nuova', segnalazione: newSeg });
+    res.json(newSeg);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -345,6 +377,7 @@ app.patch('/api/segnalazioni/:id/risolvi', auth, async (req, res) => {
       { _id: new ObjectId(req.params.id) },
       { $set: { stato: 'risolta', risoltaAt: new Date() } }
     );
+    broadcast({ type: 'segnalazione_aggiornata', id: req.params.id, stato: 'risolta' });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -363,6 +396,7 @@ app.patch('/api/segnalazioni/:id/chiudi', auth, async (req, res) => {
     if (seg.stato !== 'risolta')
       return res.status(400).json({ error: 'Puoi chiudere solo segnalazioni risolte' });
     await db.collection('segnalazioni').deleteOne({ _id: new ObjectId(req.params.id) });
+    broadcast({ type: 'segnalazione_rimossa', id: req.params.id });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -475,4 +509,4 @@ app.patch('/api/fidelity/config', auth, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-connect().then(() => app.listen(PORT, () => console.log(`Server in ascolto su porta ${PORT}`)));
+connect().then(() => server.listen(PORT, () => console.log(`Server in ascolto su porta ${PORT}`)));

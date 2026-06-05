@@ -27,6 +27,7 @@ export default function App() {
   const [disponibili, setDisponibili] = useState<Disponibile[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving]         = useState(false);
   const [pending, setPending]       = useState<Pending>({});
   const [modalVisible, setModalVisible] = useState(false);
   const [confirm, setConfirm]       = useState<Confirm>(null);
@@ -141,6 +142,7 @@ export default function App() {
       confirmLabel: 'Invia',
       delta: netDelta,
       onConfirm: async () => {
+        setSaving(true);
         const ops = Object.entries(pending).map(([id, val]) => {
           if (val === 'delete') {
             return fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: headers() })
@@ -152,6 +154,7 @@ export default function App() {
         });
         await Promise.all(ops);
         setPending({});
+        setSaving(false);
       },
     });
   };
@@ -283,11 +286,13 @@ export default function App() {
 
       {hasPending && (
         <View style={s.bar}>
-          <TouchableOpacity style={s.discardBtn} onPress={discardChanges}>
-            <Text style={s.discardText}>Scarta</Text>
+          <TouchableOpacity style={s.discardBtn} onPress={discardChanges} disabled={saving}>
+            <Text style={[s.discardText, saving && { color: '#bbb' }]}>Scarta</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.commitBtn} onPress={commitChanges}>
-            <Text style={s.commitText}>Invia modifiche</Text>
+          <TouchableOpacity style={s.commitBtn} onPress={commitChanges} disabled={saving}>
+            {saving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={s.commitText}>Invia modifiche</Text>}
           </TouchableOpacity>
         </View>
       )}

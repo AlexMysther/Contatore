@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useWs } from '@/context/WsContext';
 import {
   View, Text, TouchableOpacity, FlatList, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Pressable,
@@ -8,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
 const API_BASE = 'http://localhost:3000/api';
-const POLL_MS  = 5000;
 
 type Confirm      = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
 type Categoria    = { _id: string; nome: string; order: number };
@@ -24,19 +24,20 @@ type Segnalazione = {
 
 export default function SegnalazioniScreen() {
   const { user } = useAuth();
+  const { lastMessage } = useWs();
   const token   = user?.token ?? '';
   const isAdmin = user?.ruolo === 'admin';
 
   const [list, setList]           = useState<Segnalazione[]>([]);
   const [categorie, setCategorie] = useState<Categoria[]>([]);
   const [loading, setLoading]     = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [confirm, setConfirm]           = useState<Confirm>(null);
   const confirmData                     = useRef<Confirm>(null);
   const [selectedCat, setSelectedCat]   = useState<string | null>(null);
   const [testo, setTesto]         = useState('');
   const [error, setError]         = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = () => ({
     'Content-Type': 'application/json',
@@ -59,9 +60,20 @@ export default function SegnalazioniScreen() {
       .then(r => r.json())
       .then(data => setCategorie(Array.isArray(data) ? data : []));
     fetchList(true);
-    pollRef.current = setInterval(() => fetchList(), POLL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [token]);
+
+  useEffect(() => {
+    if (!lastMessage) return;
+    if (lastMessage.type === 'segnalazione_nuova') {
+      const seg = lastMessage.segnalazione as any;
+      const id = String(seg._id);
+      setList(prev => prev.find(s => s._id === id) ? prev : [{ ...seg, _id: id }, ...prev]);
+    } else if (lastMessage.type === 'segnalazione_aggiornata') {
+      setList(prev => prev.map(s => s._id === lastMessage.id ? { ...s, stato: lastMessage.stato as any } : s));
+    } else if (lastMessage.type === 'segnalazione_rimossa') {
+      setList(prev => prev.filter(s => s._id !== lastMessage.id));
+    }
+  }, [lastMessage]);
 
   const openModal = () => {
     setSelectedCat(null);
@@ -73,6 +85,7 @@ export default function SegnalazioniScreen() {
   const submit = () => {
     if (!selectedCat)    { setError('Seleziona una categoria.'); return; }
     if (!testo.trim())   { setError('Scrivi una descrizione.'); return; }
+    setSubmitting(true);
     fetch(`${API_BASE}/segnalazioni`, {
       method: 'POST',
       headers: headers(),
@@ -82,7 +95,9 @@ export default function SegnalazioniScreen() {
       .then(newSeg => {
         setList(prev => [newSeg, ...prev]);
         setModalVisible(false);
-      });
+      })
+      .catch(() => setError('Errore di rete'))
+      .finally(() => setSubmitting(false));
   };
 
   const showConfirm = (data: NonNullable<Confirm>) => {
@@ -97,9 +112,10 @@ export default function SegnalazioniScreen() {
       title: 'Segna come risolta',
       message: 'Vuoi segnare questa segnalazione come risolta?',
       confirmLabel: 'Risolvi',
-      onConfirm: () =>
-        fetch(`${API_BASE}/segnalazioni/${id}/risolvi`, { method: 'PATCH', headers: headers() })
-          .then(() => setList(prev => prev.map(s => s._id === id ? { ...s, stato: 'risolta' } : s))),
+      onConfirm: () => {
+        setList(prev => prev.map(s => s._id === id ? { ...s, stato: 'risolta' } : s));
+        fetch(`${API_BASE}/segnalazioni/${id}/risolvi`, { method: 'PATCH', headers: headers() });
+      },
     });
   };
 
@@ -109,9 +125,10 @@ export default function SegnalazioniScreen() {
       message: 'Vuoi eliminare questa segnalazione?',
       confirmLabel: 'Elimina',
       destructive: true,
-      onConfirm: () =>
-        fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() })
-          .then(() => setList(prev => prev.filter(s => s._id !== id))),
+      onConfirm: () => {
+        setList(prev => prev.filter(s => s._id !== id));
+        fetch(`${API_BASE}/segnalazioni/${id}/chiudi`, { method: 'PATCH', headers: headers() });
+      },
     });
   };
 
@@ -174,7 +191,7 @@ export default function SegnalazioniScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color="#c0392b" style={{ marginTop: 40 }} />
       ) : list.length === 0 ? (
         <Text style={s.empty}>Nessuna segnalazione attiva.</Text>
       ) : (
@@ -222,8 +239,10 @@ export default function SegnalazioniScreen() {
               <TouchableOpacity style={s.btnCancel} onPress={() => setModalVisible(false)}>
                 <Text style={s.btnCancelText}>Annulla</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.btnSubmit} onPress={submit}>
-                <Text style={s.btnText}>Invia</Text>
+              <TouchableOpacity style={[s.btnSubmit, submitting && { opacity: 0.7 }]} onPress={submit} disabled={submitting}>
+                {submitting
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={s.btnText}>Invia</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -254,7 +273,6 @@ const s = StyleSheet.create({
   actions:      { marginTop: 10, flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
   btnTrash:     { backgroundColor: '#aaa', borderRadius: 8, padding: 8, alignItems: 'center', justifyContent: 'center' },
   btnRisolvi:   { backgroundColor: '#c0392b', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
-  btnChiudi:    { backgroundColor: '#7f8c8d', borderRadius: 7, paddingHorizontal: 14, paddingVertical: 7 },
   btnText:      { color: '#fff', fontWeight: '600', fontSize: 13 },
 
   overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },

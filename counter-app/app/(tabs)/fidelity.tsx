@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 
-const API = 'https://contatore-production.up.railway.app/api';
+const API = 'http://localhost:3000/api';
 
 type Dolce = { _id: string; nome: string };
 
