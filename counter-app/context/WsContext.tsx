@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'https://contatore-production.up.railway.app';
 const WS_BASE  = API_BASE.replace(/^http/, 'ws');
 
 export type WsMessage =
