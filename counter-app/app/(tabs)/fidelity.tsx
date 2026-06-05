@@ -71,6 +71,7 @@ export default function FidelityScreen() {
   const [catalogo, setCatalogo]       = useState<Dolce[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState<string | null>(null);
 
   const [adminModal, setAdminModal]   = useState(false);
   const [pickerValue, setPickerValue] = useState('');
@@ -82,17 +83,19 @@ export default function FidelityScreen() {
 
   const load = useCallback(async () => {
     if (!token) return;
+    setLoadError(null);
     try {
       const [resDolci, resConfig] = await Promise.all([
         fetch(`${API}/dolci`,           { headers: headers() }),
         fetch(`${API}/fidelity/config`, { headers: headers() }),
       ]);
       if (resDolci.status === 401 || resConfig.status === 401) { logout(); return; }
+      if (!resDolci.ok) { setLoadError(`Errore server (${resDolci.status})`); return; }
       const [dolciData, configData] = await Promise.all([resDolci.json(), resConfig.json()]);
-      setCatalogo(dolciData);
+      setCatalogo(Array.isArray(dolciData) ? dolciData : []);
       setSelectedIds(configData.selectedIds ?? []);
     } catch {
-      Alert.alert('Errore', 'Impossibile caricare i dati');
+      setLoadError('Impossibile raggiungere il server');
     } finally {
       setLoading(false);
     }
@@ -152,6 +155,22 @@ export default function FidelityScreen() {
     return (
       <SafeAreaView style={s.center}>
         <ActivityIndicator size="large" color="#c0392b" />
+      </SafeAreaView>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SafeAreaView style={s.center}>
+        <Text style={{ fontSize: 40 }}>⚠️</Text>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: '#1a1a1a', marginTop: 8 }}>Errore di caricamento</Text>
+        <Text style={{ fontSize: 14, color: '#888', marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }}>{loadError}</Text>
+        <TouchableOpacity
+          style={[s.aggiungiBtn, { marginTop: 20, paddingHorizontal: 28 }]}
+          onPress={() => { setLoading(true); load(); }}
+        >
+          <Text style={s.aggiungiBtnText}>Riprova</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
