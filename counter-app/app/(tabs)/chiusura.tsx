@@ -51,6 +51,7 @@ export default function Chiusura() {
   const [confirmReset, setConfirmReset]   = useState(false);
   const [resetPin, setResetPin]           = useState('');
   const [resetPinError, setResetPinError] = useState<string | null>(null);
+  const [resetLoading, setResetLoading]   = useState(false);
   const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null);
   const statoRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -200,6 +201,8 @@ export default function Chiusura() {
   };
 
   const reset = () => {
+    if (resetLoading) return;
+    setResetLoading(true);
     fetch(`${API_BASE}/api/chiusura/reset`, {
       method: 'POST',
       headers: authHeaders(),
@@ -222,7 +225,8 @@ export default function Chiusura() {
         setResetPinError(null);
         setAvviata(false);
       })
-      .catch(() => setResetPinError('Errore di rete'));
+      .catch(() => setResetPinError('Errore di rete'))
+      .finally(() => setResetLoading(false));
   };
 
 // ── Chiusura non ancora avviata ───────────────────────────────────────────
@@ -347,8 +351,10 @@ export default function Chiusura() {
               <TouchableOpacity style={s.dialogCancel} onPress={() => { setConfirmReset(false); setResetPin(''); setResetPinError(null); }}>
                 <Text style={s.dialogCancelLabel}>Annulla</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.dialogDanger} onPress={reset}>
-                <Text style={s.dialogConfirmLabel}>Spegni</Text>
+              <TouchableOpacity style={[s.dialogDanger, resetLoading && { opacity: 0.6 }]} onPress={reset} disabled={resetLoading}>
+                {resetLoading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.dialogConfirmLabel}>Spegni</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>
