@@ -5,6 +5,12 @@ import { Platform } from 'react-native';
 const AUTH_KEY = '@auth_token';
 const API_BASE = 'https://contatore-production.up.railway.app';
 
+function timedFetch(url: string, options: RequestInit = {}, ms = 15000): Promise<Response> {
+  const ctrl = new AbortController();
+  const id   = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(id));
+}
+
 type User = {
   id: string;
   username: string;
@@ -45,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string): Promise<string | null> => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
+      const res = await timedFetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -53,12 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (!res.ok) return data.error ?? 'Errore di login';
 
-      // Fetch avatarUrl from /api/utenti/me
       let avatarUrl: string | undefined;
       try {
-        const meRes = await fetch(`${API_BASE}/api/utenti/me`, {
+        const meRes = await timedFetch(`${API_BASE}/api/utenti/me`, {
           headers: { Authorization: `Bearer ${data.token}` },
-        });
+        }, 5000);
         if (meRes.ok) {
           const me = await meRes.json();
           avatarUrl = me.avatarUrl;
@@ -69,14 +74,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;
-    } catch {
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return 'Server non raggiungibile. Riprova tra qualche secondo.';
       return 'Impossibile raggiungere il server';
     }
   };
 
   const register = async (username: string, password: string, nome: string, cognome: string): Promise<string | null> => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/register`, {
+      const res = await timedFetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, nome, cognome }),
@@ -88,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
       setUser(u);
       return null;
-    } catch {
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return 'Server non raggiungibile. Riprova tra qualche secondo.';
       return 'Impossibile raggiungere il server';
     }
   };
@@ -108,18 +115,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         formData.append('avatar', { uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
       }
-      const res = await fetch(`${API_BASE}/api/utenti/avatar`, {
+      const res = await timedFetch(`${API_BASE}/api/utenti/avatar`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
         body: formData,
-      });
+      }, 30000);
       const data = await res.json();
       if (!res.ok) return data.error ?? 'Errore upload';
       const updated = { ...user, avatarUrl: data.avatarUrl };
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(updated));
       setUser(updated);
       return null;
-    } catch {
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return 'Upload troppo lento. Riprova.';
       return 'Impossibile raggiungere il server';
     }
   };

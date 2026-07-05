@@ -6,29 +6,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useWs } from '@/context/WsContext';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { apiFetch, apiUrl, authHeaders } from '@/utils/api';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
 
-const API_BASE = 'https://contatore-production.up.railway.app';
-const API_URL  = `${API_BASE}/api/chores`;
-
 type SottoTask = { titolo: string; descrizione?: string; completato: boolean };
-
 type Chore = {
-  _id: string;
-  titolo: string;
-  descrizione?: string;
-  assegnato_a?: string;
-  completato: boolean;
-  sotto_task?: SottoTask[];
-  _expanded: boolean;
+  _id: string; titolo: string; descrizione?: string;
+  assegnato_a?: string; completato: boolean;
+  sotto_task?: SottoTask[]; _expanded: boolean;
 };
-
-type Pending = { choreId: string; titolo: string; sottoIdx?: number } | null;
-type Account = { _id: string; nome: string; cognome: string; ruolo: string };
+type Pending      = { choreId: string; titolo: string; sottoIdx?: number } | null;
+type Account      = { _id: string; nome: string; cognome: string; ruolo: string };
 type AssignPending = { choreId: string } | null;
 
 function mergeRemote(remote: Omit<Chore, '_expanded'>[], local: Chore[]): Chore[] {
@@ -39,76 +30,58 @@ function mergeRemote(remote: Omit<Chore, '_expanded'>[], local: Chore[]): Chore[
 }
 
 export default function Chiusura() {
-  const { user } = useAuth();
+  const { user }        = useAuth();
   const { lastMessage } = useWs();
   const canEdit = user?.permessi?.includes('chiusura') ?? false;
-  const [avviata, setAvviata] = useState(false);
-  const [chores, setChores]   = useState<Chore[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [pending, setPending]           = useState<Pending>(null);
-  const [accounts, setAccounts]         = useState<Account[]>([]);
+  const hdrs    = () => authHeaders(user?.token ?? '');
+
+  const [avviata, setAvviata]   = useState(false);
+  const [chores, setChores]     = useState<Chore[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [pending, setPending]   = useState<Pending>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [assignPending, setAssignPending] = useState<AssignPending>(null);
   const [confirmReset, setConfirmReset]   = useState(false);
   const [resetPin, setResetPin]           = useState('');
   const [resetPinError, setResetPinError] = useState<string | null>(null);
   const [resetLoading, setResetLoading]   = useState(false);
 
-  const authHeaders = () => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${user?.token ?? ''}`,
-  });
+  const patchChore = (id: string, body: object) =>
+    apiFetch(apiUrl(`/api/chores/${id}`), { method: 'PATCH', headers: hdrs(), body: JSON.stringify(body) });
 
-  const fetchStato = () =>
-    fetch(`${API_BASE}/api/chiusura/stato`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then((data: { avviata: boolean }) => setAvviata(data.avviata))
-      .catch(() => {});
-
-  const fetchChores = (isFirstLoad = false) => {
-    fetch(API_URL, { headers: authHeaders() })
-      .then(r => r.json())
-      .then((data: Omit<Chore, '_expanded'>[]) => {
-        setChores(prev => mergeRemote(Array.isArray(data) ? data : [], prev));
-        if (isFirstLoad) setLoading(false);
-        setError(null);
-      })
-      .catch(e => {
-        if (isFirstLoad) { setError(e.message); setLoading(false); }
-      });
-  };
-
-  // Carica accounts per tutti (serve per i colori dei badge)
   useEffect(() => {
     if (!user?.token) return;
-    fetch(`${API_BASE}/api/accounts`, { headers: authHeaders() })
+    apiFetch(apiUrl('/api/accounts'), { headers: hdrs() })
       .then(r => r.json())
       .then((data: Account[]) => Array.isArray(data) && setAccounts(data))
       .catch(() => {});
   }, [user?.token]);
 
-  // Fetch iniziale dello stato (una tantum, poi il WS mantiene aggiornato)
   useEffect(() => {
     if (!user?.token) return;
-    fetchStato();
+    apiFetch(apiUrl('/api/chiusura/stato'), { headers: hdrs() })
+      .then(r => r.json())
+      .then((data: { avviata: boolean }) => setAvviata(data.avviata))
+      .catch(() => {});
   }, [user?.token]);
 
-  // Carica chores solo quando avviata (caricamento iniziale, poi il WS aggiorna i singoli chore)
   useEffect(() => {
     if (!avviata || !user?.token) {
-      if (!avviata) {
-        setChores([]);
-        setConfirmReset(false);
-        setResetPin('');
-        setResetPinError(null);
-      }
+      if (!avviata) { setChores([]); setConfirmReset(false); setResetPin(''); setResetPinError(null); }
       return;
     }
     setLoading(true);
-    fetchChores(true);
+    apiFetch(apiUrl('/api/chores'), { headers: hdrs() })
+      .then(r => r.json())
+      .then((data: Omit<Chore, '_expanded'>[]) => {
+        setChores(prev => mergeRemote(Array.isArray(data) ? data : [], prev));
+        setError(null);
+      })
+      .catch(e => setError(e?.name === 'AbortError' ? 'Server non raggiungibile.' : e.message))
+      .finally(() => setLoading(false));
   }, [avviata, user?.token]);
 
-  // Gestione messaggi WebSocket
   useEffect(() => {
     if (!lastMessage) return;
     if (lastMessage.type === 'chiusura') {
@@ -123,26 +96,16 @@ export default function Chiusura() {
     }
   }, [lastMessage]);
 
-  const patchChore = (id: string, body: object) =>
-    fetch(`${API_URL}/${id}`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(body),
-    });
-
   const confirm = () => {
     if (!pending) return;
     const { choreId, sottoIdx } = pending;
     setPending(null);
-
     if (sottoIdx !== undefined) {
       setChores(prev => {
         const next = prev.map(c => {
           if (c._id !== choreId) return c;
-          const sotto_task = c.sotto_task?.map((st, i) =>
-            i === sottoIdx ? { ...st, completato: true } : st
-          );
-          const tuttiDone = sotto_task?.every(st => st.completato) ?? false;
+          const sotto_task = c.sotto_task?.map((st, i) => i === sottoIdx ? { ...st, completato: true } : st);
+          const tuttiDone  = sotto_task?.every(st => st.completato) ?? false;
           return { ...c, sotto_task, completato: tuttiDone ? true : c.completato };
         });
         const chore = next.find(c => c._id === choreId);
@@ -153,18 +116,15 @@ export default function Chiusura() {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setChores(prev => prev.map(c => {
         if (c._id !== choreId) return c;
-        const sotto_task = c.sotto_task?.map(st => ({ ...st, completato: true }));
-        return { ...c, completato: true, sotto_task };
+        return { ...c, completato: true, sotto_task: c.sotto_task?.map(st => ({ ...st, completato: true })) };
       }));
-      const chore = chores.find(c => c._id === choreId);
+      const chore     = chores.find(c => c._id === choreId);
       const sotto_task = chore?.sotto_task?.map(st => ({ ...st, completato: true }));
       patchChore(choreId, { completato: true, ...(sotto_task ? { sotto_task } : {}) });
     }
   };
 
   const tapChore = (id: string, titolo: string, currentDone: boolean) => {
-    const chore = chores.find(c => c._id === id);
-    if (!chore) return;
     if (currentDone) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setChores(prev => prev.map(c => c._id === id ? { ...c, completato: false } : c));
@@ -175,15 +135,11 @@ export default function Chiusura() {
   };
 
   const tapSotto = (choreId: string, idx: number, titolo: string, currentDone: boolean) => {
-    const chore = chores.find(c => c._id === choreId);
-    if (!chore) return;
     if (currentDone) {
       setChores(prev => {
         const next = prev.map(c => {
           if (c._id !== choreId) return c;
-          const sotto_task = c.sotto_task?.map((st, i) =>
-            i === idx ? { ...st, completato: false } : st
-          );
+          const sotto_task = c.sotto_task?.map((st, i) => i === idx ? { ...st, completato: false } : st);
           return { ...c, sotto_task };
         });
         const chore = next.find(c => c._id === choreId);
@@ -208,43 +164,38 @@ export default function Chiusura() {
 
   const avvia = () => {
     setAvviata(true);
-    fetch(`${API_BASE}/api/chiusura/avvia`, { method: 'POST', headers: authHeaders() }).catch(() => {
-      setAvviata(false);
-    });
+    apiFetch(apiUrl('/api/chiusura/avvia'), { method: 'POST', headers: hdrs() })
+      .catch(() => setAvviata(false));
   };
 
   const closeResetModal = () => { setConfirmReset(false); setResetPin(''); setResetPinError(null); };
 
   const reset = () => {
-    if (resetLoading) return;
+    if (resetLoading || !avviata) return;
     setResetLoading(true);
-    fetch(`${API_BASE}/api/chiusura/reset`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ pin: resetPin }),
+    setResetPinError(null);
+    apiFetch(apiUrl('/api/chiusura/reset'), {
+      method: 'POST', headers: hdrs(), body: JSON.stringify({ pin: resetPin }),
     })
       .then(async r => {
-        if (!r.ok) {
-          const data = await r.json();
-          setResetPinError(data.error ?? 'PIN non corretto');
+        // Unico vero errore da mostrare tenendo aperto il popup: PIN rifiutato.
+        if (r.status === 403) {
+          const d = await r.json().catch(() => ({}));
+          setResetPinError(d.error ?? 'PIN non corretto');
           return;
         }
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        chores.forEach(c => {
-          const sotto_task = c.sotto_task?.map(st => ({ ...st, completato: false }));
-          patchChore(c._id, { completato: false, ...(sotto_task ? { sotto_task } : {}) });
-        });
         setChores([]);
-        setConfirmReset(false);
-        setResetPin('');
-        setResetPinError(null);
+        closeResetModal();
         setAvviata(false);
       })
-      .catch(() => setResetPinError('Errore di rete'))
+      // Errore di rete/timeout: l'operazione è probabilmente andata a buon fine
+      // sul server. Chiudo comunque il popup e azzero il PIN; lo stato reale
+      // viene riconciliato dal messaggio WebSocket 'chiusura'.
+      .catch(() => closeResetModal())
       .finally(() => setResetLoading(false));
   };
 
-// ── Chiusura non ancora avviata ───────────────────────────────────────────
   if (!avviata) {
     if (canEdit) {
       return (
@@ -267,7 +218,6 @@ export default function Chiusura() {
     );
   }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <SafeAreaView style={[s.container, s.center]}>
@@ -277,15 +227,14 @@ export default function Chiusura() {
     );
   }
 
-  // ── Errore ────────────────────────────────────────────────────────────────
   if (error) {
     return (
       <SafeAreaView style={[s.container, s.center]}>
-        <Text style={s.errorIcon}>⚠️</Text>
-        <Text style={s.errorTitle}>Impossibile caricare le attività</Text>
-        <Text style={s.errorDetail}>{error}</Text>
-        <TouchableOpacity style={s.redBtn} onPress={() => fetchChores(true)}>
-          <Text style={s.btnLabel}>Riprova</Text>
+        <Text style={s.startIcon}>⚠️</Text>
+        <Text style={s.startTitle}>Errore</Text>
+        <Text style={s.startSubtitle}>{error}</Text>
+        <TouchableOpacity style={s.startBtn} onPress={() => { setError(null); setLoading(true); }}>
+          <Text style={s.startBtnLabel}>Riprova</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -295,10 +244,9 @@ export default function Chiusura() {
   const total     = chores.length;
   const progress  = total > 0 ? doneCount / total : 0;
 
-  // ── Checklist ─────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={s.container}>
-      {/* Modale di conferma */}
+      {/* Modale conferma completamento */}
       <Modal transparent animationType="fade" visible={!!pending} onRequestClose={() => setPending(null)}>
         <Pressable style={s.overlay} onPress={() => setPending(null)}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
@@ -323,18 +271,11 @@ export default function Chiusura() {
             <Text style={s.dialogTitle}>Assegna a…</Text>
             {assignPending && (
               <>
-                <TouchableOpacity
-                  style={s.assignRow}
-                  onPress={() => assignTo(assignPending.choreId, null)}
-                >
+                <TouchableOpacity style={s.assignRow} onPress={() => assignTo(assignPending.choreId, null)}>
                   <Text style={s.assignNone}>Nessuno</Text>
                 </TouchableOpacity>
                 {accounts.map(a => (
-                  <TouchableOpacity
-                    key={String(a._id)}
-                    style={s.assignRow}
-                    onPress={() => assignTo(assignPending.choreId, a.nome)}
-                  >
+                  <TouchableOpacity key={String(a._id)} style={s.assignRow} onPress={() => assignTo(assignPending.choreId, a.nome)}>
                     <Text style={s.assignName}>{a.nome}</Text>
                   </TouchableOpacity>
                 ))}
@@ -344,9 +285,9 @@ export default function Chiusura() {
         </Pressable>
       </Modal>
 
-      {/* Modale conferma spegni chiusura (con PIN) */}
-      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={() => closeResetModal()}>
-        <Pressable style={s.overlay} onPress={() => closeResetModal()}>
+      {/* Modale reset con PIN */}
+      <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={closeResetModal}>
+        <Pressable style={s.overlay} onPress={closeResetModal}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Spegni Chiusura?</Text>
             <Text style={s.dialogMsg}>Tutti i progressi verranno azzerati. Inserisci il PIN per confermare.</Text>
@@ -362,13 +303,11 @@ export default function Chiusura() {
             />
             {resetPinError && <Text style={s.pinErrorText}>{resetPinError}</Text>}
             <View style={s.dialogBtns}>
-              <TouchableOpacity style={s.dialogCancel} onPress={() => closeResetModal()}>
+              <TouchableOpacity style={s.dialogCancel} onPress={closeResetModal}>
                 <Text style={s.dialogCancelLabel}>Annulla</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.dialogDanger, resetLoading && { opacity: 0.6 }]} onPress={reset} disabled={resetLoading}>
-                {resetLoading
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={s.dialogConfirmLabel}>Spegni</Text>}
+                {resetLoading ? <ActivityIndicator color="#fff" /> : <Text style={s.dialogConfirmLabel}>Spegni</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -377,13 +316,10 @@ export default function Chiusura() {
 
       {/* Header */}
       <View style={s.header}>
-        <View style={s.titleRow}>
-          <IconSymbol name="lock.fill" size={24} color={RED} />
-          <Text style={s.title}>Chiusura</Text>
-        </View>
+        <Text style={s.title}>🔒 Chiusura</Text>
         {canEdit && (
           <TouchableOpacity style={s.resetBtn} onPress={() => setConfirmReset(true)}>
-            <Text style={s.resetBtnLabel}>Spegni Chiusura</Text>
+            <Text style={s.resetBtnLabel}>Spegni</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -404,6 +340,9 @@ export default function Chiusura() {
           const sottoTask  = item.sotto_task ?? [];
           const hasSotto   = sottoTask.length > 0;
           const sottoFatti = sottoTask.filter(st => st.completato).length;
+          const acc        = item.assegnato_a ? accounts.find(a => a.nome === item.assegnato_a) : null;
+          const badgeStyle = !item.assegnato_a ? s.badgeRed : acc?.ruolo === 'admin' ? s.badgeBlue : s.badgeGreen;
+          const assignLabel = item.assegnato_a ? `👤 ${item.assegnato_a}` : canEdit ? '👤 Assegna…' : '👤 Nessuno';
 
           return (
             <View style={[s.card, item.completato && s.cardDone]}>
@@ -420,35 +359,19 @@ export default function Chiusura() {
 
                 <View style={{ flex: 1, gap: 3 }}>
                   <Text style={[s.label, item.completato && s.labelDone]}>{item.titolo}</Text>
-                  {item.descrizione
-                    ? <Text style={[s.desc, item.completato && s.descDone]}>{item.descrizione}</Text>
-                    : null}
+                  {item.descrizione ? <Text style={[s.desc, item.completato && s.descDone]}>{item.descrizione}</Text> : null}
                   <View style={s.meta}>
-                    {(() => {
-                      const acc = item.assegnato_a
-                        ? accounts.find(a => a.nome === item.assegnato_a)
-                        : null;
-                      const badgeStyle = !item.assegnato_a
-                        ? s.badgeRed
-                        : acc?.ruolo === 'admin'
-                          ? s.badgeBlue
-                          : s.badgeGreen;
-                      const label = item.assegnato_a
-                        ? `👤 ${item.assegnato_a}`
-                        : canEdit ? '👤 Assegna…' : '👤 Nessuno assegnato';
-                      return canEdit ? (
-                        <TouchableOpacity onPress={() => setAssignPending({ choreId: item._id })}>
-                          <Text style={[s.badge, badgeStyle]}>{label}</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <Text style={[s.badge, badgeStyle]}>{label}</Text>
-                      );
-                    })()}
-                    {hasSotto
-                      ? <Text style={s.badge}>📋 {sottoFatti}/{sottoTask.length}</Text>
-                      : null}
+                    {canEdit ? (
+                      <TouchableOpacity onPress={() => setAssignPending({ choreId: item._id })}>
+                        <Text style={[s.badge, badgeStyle]}>{assignLabel}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={[s.badge, badgeStyle]}>{assignLabel}</Text>
+                    )}
+                    {hasSotto && <Text style={s.badge}>📋 {sottoFatti}/{sottoTask.length}</Text>}
                   </View>
                 </View>
+
                 {hasSotto && (
                   <TouchableOpacity onPress={() => toggleExpand(item._id)} style={s.expandBtn}>
                     <Text style={s.expandIcon}>{item._expanded ? '▲' : '▼'}</Text>
@@ -471,9 +394,7 @@ export default function Chiusura() {
                       </TouchableOpacity>
                       <View style={{ flex: 1 }}>
                         <Text style={[s.sottoLabel, st.completato && s.labelDone]}>{st.titolo}</Text>
-                        {st.descrizione
-                          ? <Text style={[s.desc, st.completato && s.descDone]}>{st.descrizione}</Text>
-                          : null}
+                        {st.descrizione ? <Text style={[s.desc, st.completato && s.descDone]}>{st.descrizione}</Text> : null}
                       </View>
                     </View>
                   ))}
@@ -487,23 +408,23 @@ export default function Chiusura() {
   );
 }
 
-const GREEN = '#27ae60';
 const RED   = '#c0392b';
+const GREEN = '#27ae60';
 
 const s = StyleSheet.create({
   container:     { flex: 1, backgroundColor: '#f2f2f2', paddingTop: 24 },
   center:        { justifyContent: 'center', alignItems: 'center', gap: 16 },
-
-  // Start screen
   startIcon:     { fontSize: 64 },
   startTitle:    { fontSize: 30, fontWeight: '800', color: '#1a1a1a' },
   startSubtitle: { fontSize: 15, color: '#888', textAlign: 'center', paddingHorizontal: 40 },
   startBtn:      { marginTop: 8, backgroundColor: RED, paddingHorizontal: 40, paddingVertical: 16, borderRadius: 14 },
   startBtnLabel: { color: '#fff', fontWeight: '700', fontSize: 17 },
+  hint:          { fontSize: 14, color: '#aaa', marginTop: 8 },
 
   header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
-  titleRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  title:         { fontSize: 28, fontWeight: '700', color: '#1a1a1a' },
+  title:         { fontSize: 26, fontWeight: '700', color: '#1a1a1a' },
+  resetBtn:      { backgroundColor: RED, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  resetBtnLabel: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   progressWrap:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 10, marginBottom: 14 },
   progressBg:    { flex: 1, height: 8, backgroundColor: '#ddd', borderRadius: 4, overflow: 'hidden' },
@@ -511,7 +432,6 @@ const s = StyleSheet.create({
   progressLabel: { fontSize: 13, color: '#888', minWidth: 36, textAlign: 'right' },
 
   list:          { paddingHorizontal: 14, paddingBottom: 32, gap: 10 },
-
   card:          { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', elevation: 2 },
   cardDone:      { backgroundColor: '#f0fff4' },
   cardRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
@@ -527,27 +447,18 @@ const s = StyleSheet.create({
 
   meta:          { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' },
   badge:         { fontSize: 12, color: '#555', backgroundColor: '#f0f0f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
-  badgeRed:      { color: RED,     backgroundColor: '#fdecea', borderWidth: 1, borderColor: RED },
-  badgeGreen:    { color: '#1e8449', backgroundColor: '#eafaf1', borderWidth: 1, borderColor: '#27ae60' },
+  badgeRed:      { color: RED,      backgroundColor: '#fdecea', borderWidth: 1, borderColor: RED },
+  badgeGreen:    { color: '#1e8449', backgroundColor: '#eafaf1', borderWidth: 1, borderColor: GREEN },
   badgeBlue:     { color: '#1a5276', backgroundColor: '#eaf2ff', borderWidth: 1, borderColor: '#2980b9' },
 
   expandBtn:     { padding: 4 },
   expandIcon:    { fontSize: 12, color: '#aaa' },
-
   sottoList:     { borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
   sottoRow:      { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sottoCheck:    { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#aaa', alignItems: 'center', justifyContent: 'center' },
   sottoCheckDone:{ backgroundColor: GREEN, borderColor: GREEN },
   sottoMark:     { color: '#fff', fontSize: 11, fontWeight: '700' },
   sottoLabel:    { fontSize: 14, color: '#333' },
-
-  hint:          { fontSize: 14, color: '#aaa', marginTop: 8 },
-  errorIcon:     { fontSize: 40 },
-  errorTitle:    { fontSize: 17, fontWeight: '600', color: '#1a1a1a' },
-  errorDetail:   { fontSize: 13, color: '#888', textAlign: 'center', paddingHorizontal: 32 },
-
-  redBtn:        { marginTop: 8, backgroundColor: RED, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 },
-  btnLabel:      { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
   dialog:        { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 300, gap: 12 },
@@ -564,10 +475,7 @@ const s = StyleSheet.create({
   dialogDanger:  { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: RED,   alignItems: 'center' },
   dialogConfirmLabel: { fontSize: 15, color: '#fff', fontWeight: '700' },
 
-  resetBtn:       { backgroundColor: RED, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  resetBtnLabel:  { color: '#fff', fontWeight: '700', fontSize: 13 },
-
-  pinInput:       { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 18, letterSpacing: 4, color: '#1a1a1a', textAlign: 'center', marginTop: 4 },
-  pinInputError:  { borderColor: RED },
-  pinErrorText:   { fontSize: 13, color: RED, textAlign: 'center' },
+  pinInput:      { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 18, letterSpacing: 4, color: '#1a1a1a', textAlign: 'center', marginTop: 4 },
+  pinInputError: { borderColor: RED },
+  pinErrorText:  { fontSize: 13, color: RED, textAlign: 'center' },
 });

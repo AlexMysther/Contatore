@@ -1,96 +1,134 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  FlatList, StyleSheet, Modal, Pressable,
+  FlatList, Modal, Pressable,
   KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useNav } from '@/context/NavContext';
+import { apiFetch, apiUrl, authHeaders } from '@/utils/api';
+import { RED, CAT_COLORS, DEFAULT_COLOR, s } from './index.styles';
 
 const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
 
-const API_URL  = 'https://contatore-production.up.railway.app/api/prodotti';
-const API_DISPONIBILI = 'https://contatore-production.up.railway.app/api/prodotti-disponibili';
-type Item      = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
+type Item        = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
 type Disponibile = { _id: string; name: string; categoria: string; prodotti_legati?: string[] };
-type Pending   = Record<string, number | 'delete'>;
-type Confirm   = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean; delta?: number } | null;
+type Pending     = Record<string, number | 'delete'>;
+type Confirm     = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean; delta?: number } | null;
 
-export default function App() {
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+function sortItems(list: Item[]): Item[] {
+  return [...list].sort((a, b) => {
+    if (a.count === 0 && b.count !== 0) return 1;
+    if (a.count !== 0 && b.count === 0) return -1;
+    return a.name.localeCompare(b.name, 'it');
+  });
+}
+
+// ─── component ───────────────────────────────────────────────────────────────
+
+export default function HomeScreen() {
   const { user, logout } = useAuth();
-  const { setHideNav } = useNav();
-  const token = user?.token ?? '';
+  const { setHideNav }   = useNav();
+  const token  = user?.token ?? '';
+  const hdrs   = () => authHeaders(token);
+  const listRef = useRef<FlatList<Item>>(null);
 
-  const [items, setItems]           = useState<Item[]>([]);
+  // data
+  const [items, setItems]             = useState<Item[]>([]);
   const [disponibili, setDisponibili] = useState<Disponibile[]>([]);
+
+  // ui states
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving]         = useState(false);
-  const [pending, setPending]       = useState<Pending>({});
-  const [modalVisible, setModalVisible] = useState(false);
-  const [confirm, setConfirm]       = useState<Confirm>(null);
+  const [loadError, setLoadError]   = useState<string | null>(null);
+  const [saveError, setSaveError]   = useState<string | null>(null);
+
+  // pending changes
+  const [pending, setPending] = useState<Pending>({});
+
+  // confirm dialog
+  const [confirm, setConfirm] = useState<Confirm>(null);
+
+  // add modal
+  const [modalVisible, setModalVisible]       = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Disponibile | null>(null);
-  const [customName, setCustomName] = useState('');
+  const [customName, setCustomName]           = useState('');
   const [customCategoria, setCustomCategoria] = useState<string | null>(null);
-  const [modalTab, setModalTab] = useState<'prodotti' | 'ingredienti'>('prodotti');
-  const [inputQty, setInputQty]     = useState('');
-  const [addError, setAddError]     = useState<string | null>(null);
+  const [modalTab, setModalTab]               = useState<'prodotti' | 'ingredienti'>('prodotti');
+  const [inputQty, setInputQty]               = useState('');
+  const [addError, setAddError]               = useState<string | null>(null);
 
-  const headers = () => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  });
+  // ─── derived ───────────────────────────────────────────────────────────────
 
-  const onRefresh = async () => {
-    setRefreshing(true);
+  const hasPending = Object.keys(pending).length > 0;
+  const isCustom   = selectedProduct?.name === '__custom__';
+  // id of the item currently being count-edited (only one at a time)
+  const activeId   = Object.keys(pending).find(k => typeof pending[k] === 'number');
+
+  useEffect(() => { setHideNav(hasPending); }, [hasPending]);
+
+  const displayCount = (item: Item) =>
+    typeof pending[item._id] === 'number' ? (pending[item._id] as number) : item.count;
+
+  // ─── data loading ──────────────────────────────────────────────────────────
+
+  const loadData = async () => {
     try {
-      const [itemsRes, dispRes] = await Promise.all([
-        fetch(API_URL, { headers: headers() }),
-        fetch(API_DISPONIBILI, { headers: headers() }),
+      const [r1, r2] = await Promise.all([
+        apiFetch(apiUrl('/api/prodotti'),             { headers: hdrs() }),
+        apiFetch(apiUrl('/api/prodotti-disponibili'), { headers: hdrs() }),
       ]);
-      if (itemsRes.status === 401) { logout(); return; }
-      const [itemsData, dispData] = await Promise.all([itemsRes.json(), dispRes.json()]);
-      setItems(Array.isArray(itemsData) ? itemsData : []);
-      setDisponibili(Array.isArray(dispData) ? dispData : []);
-    } finally {
-      setRefreshing(false);
+      if (r1.status === 401 || r2.status === 401) { logout(); return; }
+      if (!r1.ok || !r2.ok) throw new Error();
+      const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
+      setItems(Array.isArray(d1) ? d1 : []);
+      setDisponibili(Array.isArray(d2) ? d2 : []);
+      setLoadError(null);
+    } catch {
+      setLoadError('Impossibile raggiungere il server. Riprova.');
     }
   };
 
   useEffect(() => {
     if (!token) return;
-    Promise.all([
-      fetch(API_URL, { headers: headers() }),
-      fetch(API_DISPONIBILI, { headers: headers() }),
-    ])
-      .then(async ([itemsRes, dispRes]) => {
-        if (itemsRes.status === 401) { logout(); return; }
-        const [itemsData, dispData] = await Promise.all([itemsRes.json(), dispRes.json()]);
-        setItems(Array.isArray(itemsData) ? itemsData : []);
-        setDisponibili(Array.isArray(dispData) ? dispData : []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    loadData().finally(() => setLoading(false));
   }, [token]);
 
-  const catColor: Record<string, { bg: string; border: string; text: string }> = {
-    antipasto:    { bg: '#fdecea', border: '#ef9a9a', text: '#c0392b' },
-    pizza:        { bg: '#e8f5e9', border: '#a5d6a7', text: '#27ae60' },
-    dolci:        { bg: '#e3f2fd', border: '#90caf9', text: '#1565c0' },
-    bevanda:      { bg: '#f3e5f5', border: '#ce93d8', text: '#7b1fa2' },
-    'M.autunno':  { bg: '#fff3e0', border: '#ffb74d', text: '#e65100' },
-    ingrediente:  { bg: '#f1f8e9', border: '#aed581', text: '#558b2f' },
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
   };
 
-  const hasPending  = Object.keys(pending).length > 0;
-  const isCustom    = selectedProduct?.name === '__custom__';
+  // Silent re-sync of just the items list (no full-screen loader/error).
+  // Used to reconcile after a write whose outcome is uncertain (e.g. a
+  // client-side timeout that may still have succeeded on the server).
+  const refetchItems = async (): Promise<Item[] | null> => {
+    try {
+      const r = await apiFetch(apiUrl('/api/prodotti'), { headers: hdrs() });
+      if (r.status === 401) { logout(); return null; }
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (!Array.isArray(d)) return null;
+      setItems(d);
+      return d;
+    } catch {
+      return null;
+    }
+  };
 
-  useEffect(() => { setHideNav(hasPending); }, [hasPending]);
+  const retryLoad = () => {
+    setLoadError(null);
+    setLoading(true);
+    loadData().finally(() => setLoading(false));
+  };
 
-  const displayCount = (item: Item): number =>
-    typeof pending[item._id] === 'number' ? (pending[item._id] as number) : item.count;
+  // ─── add item ──────────────────────────────────────────────────────────────
 
   const openModal = () => {
     setSelectedProduct(null);
@@ -102,40 +140,80 @@ export default function App() {
     setModalVisible(true);
   };
 
-  const confirmAdd = () => {
-    if (!selectedProduct) { setAddError('Seleziona un prodotto dalla lista.'); return; }
-    const name = isCustom ? customName.trim() : selectedProduct.name;
+  const confirmAdd = async () => {
+    if (!selectedProduct) { setAddError('Seleziona un prodotto.'); return; }
+    const name      = isCustom ? customName.trim() : selectedProduct.name;
     const categoria = isCustom ? customCategoria : selectedProduct.categoria;
-    const prodotti_legati = isCustom ? undefined : selectedProduct.prodotti_legati;
-    if (!name) { setAddError('Inserisci il nome del prodotto personalizzato.'); return; }
+    if (!name) { setAddError('Inserisci il nome del prodotto.'); return; }
     const qty = parseInt(inputQty, 10);
-    if (isNaN(qty) || qty < 0) { setAddError('Inserisci un numero intero positivo.'); return; }
+    if (isNaN(qty) || qty < 0) { setAddError('Inserisci una quantità valida.'); return; }
 
+    // optimistic insert
     const tempId = `temp_${Date.now()}`;
-    setItems(prev => [...prev, { _id: tempId, name, count: qty, categoria: categoria ?? null, ...(prodotti_legati ? { prodotti_legati } : {}) }]);
-    setAddError(null);
+    setItems(prev => [...prev, { _id: tempId, name, count: qty, categoria: categoria ?? null }]);
     setModalVisible(false);
+    // scroll to end so the new item is always visible
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
 
-    fetch(API_URL, { method: 'POST', headers: headers(), body: JSON.stringify({ name, count: qty, categoria, prodotti_legati }) })
-      .then(r => r.json())
-      .then((newItem: Item) => setItems(prev => prev.map(i => i._id === tempId ? newItem : i)));
+    try {
+      const r = await apiFetch(apiUrl('/api/prodotti'), {
+        method: 'POST',
+        headers: hdrs(),
+        body: JSON.stringify({
+          name, count: qty, categoria,
+          prodotti_legati: isCustom ? undefined : selectedProduct.prodotti_legati,
+        }),
+      }, 25000); // longer timeout: a write must not be given up on too early
+      if (r.status === 401) { logout(); return; }
+      if (!r.ok) throw new Error();
+      const newItem: Item = await r.json();
+      setItems(prev => prev.map(i => i._id === tempId ? newItem : i));
+    } catch {
+      // A client-side timeout/abort does NOT mean the server rejected the
+      // write — the insert may well have gone through. Re-sync with the
+      // server so a successfully-saved item shows up automatically, instead
+      // of forcing the user to pull-to-refresh.
+      const synced = await refetchItems();
+      if (synced) {
+        // reconciled list is now the source of truth; if the item isn't in it
+        // the write really failed, otherwise it's already shown correctly
+        if (!synced.some(i => i.name === name)) {
+          setSaveError('Impossibile aggiungere il prodotto. Riprova.');
+        }
+      } else {
+        // couldn't reach the server at all → rollback the optimistic insert
+        setItems(prev => prev.filter(i => i._id !== tempId));
+        setSaveError('Impossibile aggiungere il prodotto. Riprova.');
+      }
+    }
   };
+
+  // ─── pending changes ───────────────────────────────────────────────────────
 
   const change = (id: string, delta: number) => {
     const current = displayCount(items.find(i => i._id === id)!);
     setPending(prev => ({ ...prev, [id]: Math.max(0, current + delta) }));
   };
 
-  const remove = (id: string) =>
-    setPending(prev => ({ ...prev, [id]: 'delete' }));
+  // toggling ✕ on an already-deleted item cancels the deletion
+  const remove = (id: string) => setPending(prev => {
+    if (prev[id] === 'delete') {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    }
+    return { ...prev, [id]: 'delete' };
+  });
+
+  // ─── commit / discard ──────────────────────────────────────────────────────
 
   const commitChanges = () => {
     const netDelta = Object.entries(pending).reduce((acc, [id, val]) => {
       const item = items.find(i => i._id === id);
       if (!item) return acc;
-      if (val === 'delete') return acc - item.count;
-      return acc + ((val as number) - item.count);
+      return val === 'delete' ? acc - item.count : acc + ((val as number) - item.count);
     }, 0);
+
     setConfirm({
       title: 'Invia modifiche',
       message: 'Vuoi applicare tutte le modifiche in sospeso?',
@@ -143,43 +221,81 @@ export default function App() {
       delta: netDelta,
       onConfirm: async () => {
         setSaving(true);
-        const ops = Object.entries(pending).map(([id, val]) => {
-          if (val === 'delete') {
-            return fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: headers() })
-              .then(() => setItems(prev => prev.filter(i => i._id !== id)));
+        setSaveError(null);
+
+        const entries = Object.entries(pending);
+        const results = await Promise.allSettled(
+          entries.map(([id, val]) =>
+            val === 'delete'
+              ? apiFetch(apiUrl(`/api/prodotti/${id}`), { method: 'DELETE', headers: hdrs() })
+                  .then(r => { if (r.status === 401) { logout(); throw new Error(); } if (!r.ok) throw new Error(); })
+              : apiFetch(apiUrl(`/api/prodotti/${id}`), { method: 'PATCH', headers: hdrs(), body: JSON.stringify({ count: val }) })
+                  .then(r => { if (r.status === 401) { logout(); throw new Error(); } if (!r.ok) throw new Error(); })
+          )
+        );
+
+        const failedIds: string[] = [];
+        results.forEach((result, i) => {
+          const [id, val] = entries[i];
+          if (result.status === 'fulfilled') {
+            if (val === 'delete') setItems(prev => prev.filter(item => item._id !== id));
+            else setItems(prev => prev.map(item => item._id === id ? { ...item, count: val as number } : item));
           } else {
-            return fetch(`${API_URL}/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ count: val }) })
-              .then(() => setItems(prev => prev.map(i => i._id === id ? { ...i, count: val as number } : i)));
+            failedIds.push(id);
           }
         });
-        await Promise.all(ops);
-        setPending({});
+
+        if (failedIds.length === 0) {
+          setPending({});
+        } else {
+          setPending(() => {
+            const kept: Pending = {};
+            failedIds.forEach(id => { kept[id] = pending[id]; });
+            return kept;
+          });
+          setSaveError(`${failedIds.length} modifica non salvata. Riprova.`);
+        }
+
         setSaving(false);
       },
     });
   };
 
-  const discardChanges = () => {
-    setConfirm({
-      title: 'Annulla modifiche',
-      message: 'Vuoi scartare tutte le modifiche in sospeso?',
-      confirmLabel: 'Sì, scarta',
-      destructive: true,
-      onConfirm: () => setPending({}),
-    });
-  };
+  const discardChanges = () => setConfirm({
+    title: 'Annulla modifiche',
+    message: 'Vuoi scartare tutte le modifiche?',
+    confirmLabel: 'Sì, scarta',
+    destructive: true,
+    onConfirm: () => setPending({}),
+  });
+
+  // ─── render guards ─────────────────────────────────────────────────────────
 
   if (loading) {
     return (
       <SafeAreaView style={[s.container, s.center]}>
-        <ActivityIndicator size="large" color="#c0392b" />
+        <ActivityIndicator size="large" color={RED} />
       </SafeAreaView>
     );
   }
 
+  if (loadError) {
+    return (
+      <SafeAreaView style={[s.container, s.center]}>
+        <Text style={s.errorText}>{loadError}</Text>
+        <TouchableOpacity style={s.retryBtn} onPress={retryLoad}>
+          <Text style={s.retryBtnText}>Riprova</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  // ─── main render ───────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={s.container}>
-      {/* Modale conferma */}
+
+      {/* ── confirm dialog ── */}
       <Modal transparent animationType="fade" visible={!!confirm} onRequestClose={() => setConfirm(null)}>
         <Pressable style={s.overlay} onPress={() => setConfirm(null)}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
@@ -208,56 +324,66 @@ export default function App() {
       <Image source={BANNER_IMAGE} style={s.banner} resizeMode="cover" />
       <View style={s.titleRow}>
         <Text style={s.title}>{user?.nome ?? 'Ciao!'}</Text>
-        {user && (user.avatarUrl
+        {user?.avatarUrl
           ? <Image source={{ uri: user.avatarUrl }} style={s.avatar} />
-          : <View style={s.avatarPlaceholder}><Text style={s.avatarInitial}>{user.nome?.[0]?.toUpperCase() ?? '?'}</Text></View>
-        )}
+          : <View style={s.avatarPlaceholder}>
+              <Text style={s.avatarInitial}>{user?.nome?.[0]?.toUpperCase() ?? '?'}</Text>
+            </View>
+        }
       </View>
 
       <TouchableOpacity style={s.addBtn} onPress={openModal}>
         <Text style={s.addBtnText}>+ Aggiungi elemento</Text>
       </TouchableOpacity>
 
-      <FlatList
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#c0392b']} tintColor="#c0392b" />}
-        data={[...items].sort((a, b) => {
-          const aFinito = a.count === 0;
-          const bFinito = b.count === 0;
-          if (aFinito !== bFinito) return aFinito ? 1 : -1;
-          return a.name.localeCompare(b.name, 'it');
-        })}
+      {/* ── save error banner ── */}
+      {saveError && (
+        <View style={s.saveErrorBanner}>
+          <Text style={s.saveErrorText}>{saveError}</Text>
+          <TouchableOpacity onPress={() => setSaveError(null)}>
+            <Text style={s.saveErrorDismiss}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── items list ── */}
+      <FlatList<Item>
+        ref={listRef}
+        extraData={pending}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[RED]} tintColor={RED} />}
+        data={sortItems(items)}
         keyExtractor={item => item._id}
         renderItem={({ item }) => {
           const isDeleted = pending[item._id] === 'delete';
           const isDirty   = pending[item._id] !== undefined;
           const diff      = isDirty && !isDeleted ? (displayCount(item) - item.count) : 0;
           const isSoldOut = !isDeleted && item.count === 0;
-          const activeId  = Object.keys(pending).find(k => typeof pending[k] === 'number');
           const isLocked  = !!activeId && activeId !== item._id;
-          const c = catColor[item.categoria ?? ''] ?? catColor.antipasto;
+          const c = CAT_COLORS[item.categoria ?? ''] ?? DEFAULT_COLOR;
           return (
             <View style={[
               s.card,
               !isDeleted && { backgroundColor: c.bg, borderWidth: 1.5, borderColor: c.text },
               isDeleted && s.cardDeleted,
               isDirty && !isDeleted && s.cardDirty,
-
               isLocked && s.cardLocked,
             ]}>
-              <TouchableOpacity onPress={() => remove(item._id)} disabled={isDeleted || isLocked}>
+              <TouchableOpacity onPress={() => remove(item._id)} disabled={isLocked}>
                 <Text style={[s.del, isDeleted && s.delActive]}>✕</Text>
               </TouchableOpacity>
               <View style={s.cardBody}>
                 <View style={s.nameRow}>
                   <Text style={[s.name, isDeleted && s.nameDeleted]}>{item.name}</Text>
-                  {item.categoria && (() => { const c = catColor[item.categoria!] ?? catColor.antipasto; return <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}><Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text></View>; })()}
+                  {item.categoria && (
+                    <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
+                      <Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text>
+                    </View>
+                  )}
                   {isSoldOut && <View style={s.soldOutBadge}><Text style={s.soldOutText}>Finito</Text></View>}
                 </View>
                 {item.prodotti_legati && item.prodotti_legati.length > 0 && (
                   <View style={s.legatiBox}>
-                    {item.prodotti_legati.map(p => (
-                      <Text key={p} style={s.legatiItem}>• {p}</Text>
-                    ))}
+                    {item.prodotti_legati.map(p => <Text key={p} style={s.legatiItem}>• {p}</Text>)}
                   </View>
                 )}
                 {diff !== 0 && (
@@ -268,7 +394,7 @@ export default function App() {
               </View>
               {isDeleted ? (
                 <Text style={s.deletedLabel}>Da eliminare</Text>
-              ) : isSoldOut ? null : (
+              ) : !isSoldOut && (
                 <View style={s.counter}>
                   <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, -1)} disabled={isLocked}>
                     <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>−</Text>
@@ -284,6 +410,7 @@ export default function App() {
         }}
       />
 
+      {/* ── bottom action bar ── */}
       {hasPending && (
         <View style={s.bar}>
           <TouchableOpacity style={s.discardBtn} onPress={discardChanges} disabled={saving}>
@@ -292,22 +419,15 @@ export default function App() {
           <TouchableOpacity style={s.commitBtn} onPress={commitChanges} disabled={saving}>
             {saving
               ? <ActivityIndicator color="#fff" />
-              : <Text style={s.commitText}>Invia modifiche</Text>}
+              : <Text style={s.commitText}>Invia modifiche</Text>
+            }
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Modale aggiungi prodotto */}
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+      {/* ── add product modal ── */}
+      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable style={s.overlay} onPress={() => setModalVisible(false)}>
             <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
               <Text style={s.dialogTitle}>Nuovo elemento</Text>
@@ -326,36 +446,42 @@ export default function App() {
                   </TouchableOpacity>
                 ))}
               </View>
+
               <ScrollView style={s.productList} nestedScrollEnabled>
-                {disponibili.filter(p => modalTab === 'ingredienti' ? p.categoria === 'ingrediente' : p.categoria !== 'ingrediente').map(product => {
-                  const alreadyAdded = items.some(i => i.name === product.name);
-                  const isSelected = selectedProduct?._id === product._id;
-                  const c = catColor[product.categoria] ?? catColor.antipasto;
-                  return (
-                    <TouchableOpacity
-                      key={String(product._id)}
-                      style={[
-                        s.productItem,
-                        !isSelected && !alreadyAdded && { backgroundColor: c.bg, borderLeftWidth: 3, borderLeftColor: c.border },
-                        isSelected && s.productItemSelected,
-                        alreadyAdded && s.productItemDisabled,
-                      ]}
-                      onPress={() => !alreadyAdded && setSelectedProduct(product)}
-                      disabled={alreadyAdded}
-                    >
-                      <Text style={[s.productItemText, !isSelected && !alreadyAdded && { color: c.text }, isSelected && s.productItemTextSelected, alreadyAdded && s.productItemTextDisabled]}>
-                        {product.name}{alreadyAdded ? ' (già aggiunto)' : ''}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {disponibili
+                  .filter(p => modalTab === 'ingredienti' ? p.categoria === 'ingrediente' : p.categoria !== 'ingrediente')
+                  .map(product => {
+                    const alreadyAdded = items.some(i => i.name === product.name);
+                    const isSelected   = selectedProduct?._id === product._id;
+                    const c = CAT_COLORS[product.categoria] ?? DEFAULT_COLOR;
+                    return (
+                      <TouchableOpacity
+                        key={String(product._id)}
+                        style={[
+                          s.productItem,
+                          !isSelected && !alreadyAdded && { backgroundColor: c.bg, borderLeftWidth: 3, borderLeftColor: c.border },
+                          isSelected && s.productItemSelected,
+                          alreadyAdded && s.productItemDisabled,
+                        ]}
+                        onPress={() => !alreadyAdded && setSelectedProduct(product)}
+                        disabled={alreadyAdded}
+                      >
+                        <Text style={[
+                          s.productItemText,
+                          !isSelected && !alreadyAdded && { color: c.text },
+                          isSelected && s.productItemTextSelected,
+                          alreadyAdded && s.productItemTextDisabled,
+                        ]}>
+                          {product.name}{alreadyAdded ? ' (già aggiunto)' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 <TouchableOpacity
                   style={[s.productItem, isCustom && s.productItemSelected]}
                   onPress={() => setSelectedProduct({ _id: '__custom__', name: '__custom__', categoria: '' })}
                 >
-                  <Text style={[s.productItemText, isCustom && s.productItemTextSelected]}>
-                    ✏️ Personalizzato
-                  </Text>
+                  <Text style={[s.productItemText, isCustom && s.productItemTextSelected]}>✏️ Personalizzato</Text>
                 </TouchableOpacity>
               </ScrollView>
 
@@ -370,8 +496,8 @@ export default function App() {
                   />
                   <Text style={s.label}>Categoria</Text>
                   <View style={s.catChipRow}>
-                    {(['antipasto', 'pizza', 'dolci', 'bevanda', 'M.autunno', 'ingrediente'] as const).map(cat => {
-                      const c = catColor[cat];
+                    {Object.keys(CAT_COLORS).map(cat => {
+                      const c   = CAT_COLORS[cat];
                       const sel = customCategoria === cat;
                       return (
                         <TouchableOpacity
@@ -419,96 +545,7 @@ export default function App() {
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
+
     </SafeAreaView>
   );
 }
-
-const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#fff', paddingTop: 24 },
-  center:       { justifyContent: 'center', alignItems: 'center' },
-  banner:       { width: '100%', height: 180 },
-  titleRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
-  titleLeft:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar:       { width: 44, height: 44, borderRadius: 22 },
-  avatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#c0392b', alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  title:        { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
-  userLabel:    { fontSize: 12, color: '#888', marginTop: 2 },
-  logoutBtn:    { backgroundColor: '#f0f0f0', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-  logoutText:   { fontSize: 14, color: '#c0392b', fontWeight: '600' },
-  addBtn:       { backgroundColor: '#c0392b', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 16, marginHorizontal: 16 },
-  addBtnText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
-  card:         { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, boxShadow: '0px 2px 4px rgba(0,0,0,0.06)', elevation: 2 } as any,
-  cardHasQty:   { borderWidth: 1, borderColor: '#1a1a1a' },
-  cardDirty:    { borderWidth: 1.5, borderColor: '#c0392b' },
-  cardDeleted:  { backgroundColor: '#fff0f0', borderWidth: 1.5, borderColor: '#c0392b' },
-  del:          { color: '#ccc', fontSize: 14 },
-  delActive:    { color: '#c0392b' },
-  cardBody:     { flex: 1, gap: 2 },
-  name:         { fontSize: 20, color: '#1a1a1a', fontWeight: '500', flex: 1 },
-  nameDeleted:  { color: '#aaa', textDecorationLine: 'line-through' },
-  diff:         { fontSize: 12, fontWeight: '600' },
-  diffPos:      { color: '#27ae60' },
-  diffNeg:      { color: '#c0392b' },
-  cardSoldOut:  { backgroundColor: '#fff7e6', borderWidth: 1.5, borderColor: '#e67e22' },
-  nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  catBadge:     { backgroundColor: '#eef2ff', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: '#c5cae9' },
-  catBadgeText: { fontSize: 11, fontWeight: '600', color: '#5c6bc0' },
-  soldOutBadge: { backgroundColor: '#e67e22', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  soldOutText:  { fontSize: 11, fontWeight: '700', color: '#fff' },
-  deletedLabel: { fontSize: 13, color: '#c0392b', fontWeight: '600' },
-  counter:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  btn:          { backgroundColor: '#fdecea', borderRadius: 8, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  btnText:      { fontSize: 20, color: '#c0392b', lineHeight: 24 },
-  btnDisabled:      { backgroundColor: '#f5f5f5' },
-  btnTextDisabled:  { color: '#ccc' },
-  cardLocked:   { opacity: 0.45 },
-  count:        { fontSize: 18, fontWeight: '600', minWidth: 28, textAlign: 'center', color: '#1a1a1a' },
-  bar:          { flexDirection: 'row', gap: 10, paddingTop: 12, paddingBottom: 16, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 4 },
-  discardBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#f0f0f0' },
-  discardText:  { fontSize: 15, color: '#555' },
-  commitBtn:    { flex: 2, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#c0392b' },
-  commitText:   { fontSize: 15, color: '#fff', fontWeight: '600' },
-  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
-  dialog:       { backgroundColor: '#fff', borderRadius: 16, padding: 24, gap: 8 },
-  dialogTitle:  { fontSize: 20, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
-  confirmMsg:   { fontSize: 15, color: '#444' },
-  deltaNum:     { fontSize: 52, fontWeight: '800', textAlign: 'center', marginVertical: 4 },
-  deltaPos:     { color: '#27ae60' },
-  deltaNeg:     { color: '#c0392b' },
-  label:        { fontSize: 13, color: '#666', marginTop: 4 },
-  dialogInput:  { backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12, fontSize: 16, borderWidth: 1, borderColor: '#ddd', color: '#1a1a1a', marginBottom: 4 },
-  dialogRow:    { flexDirection: 'row', gap: 10, marginTop: 12 },
-  cancelBtn:    { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#f0f0f0' },
-  cancelText:   { fontSize: 15, color: '#555' },
-  confirmBtn:   { flex: 1, borderRadius: 10, padding: 13, alignItems: 'center', backgroundColor: '#c0392b' },
-  confirmText:  { fontSize: 15, color: '#fff', fontWeight: '600' },
-  destructiveBtn: { backgroundColor: '#c0392b' },
-  addErrorText: { fontSize: 13, color: '#c0392b', textAlign: 'center' },
-  tabRow:           { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  tabBtn:           { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center', backgroundColor: '#f0f0f0' },
-  tabBtnActive:     { backgroundColor: '#c0392b' },
-  tabBtnText:       { fontSize: 14, color: '#555', fontWeight: '600' },
-  tabBtnTextActive: { color: '#fff' },
-  productList:          { maxHeight: 160, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, marginBottom: 4 },
-  productItem:          { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  productItemSelected:  { backgroundColor: '#c0392b' },
-  productItemText:      { fontSize: 16, color: '#1a1a1a' },
-  productItemTextSelected: { color: '#fff', fontWeight: '600' },
-  productItemDisabled:  { backgroundColor: '#f9f9f9' },
-  productItemTextDisabled: { color: '#bbb' },
-  legatiBox:    { backgroundColor: '#f8f9fa', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#e0e0e0', marginTop: 6, marginBottom: 4 },
-  legatiTitle:  { fontSize: 12, color: '#888', fontWeight: '600', marginBottom: 4 },
-  legatiItem:   { fontSize: 13, color: '#444', lineHeight: 20, fontWeight: '700' },
-  catChipRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  catChip:          { borderWidth: 1, borderColor: '#ddd', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
-  catChipSel:       { backgroundColor: '#c0392b', borderColor: '#c0392b' },
-  catChipText:      { fontSize: 13, color: '#555' },
-  catChipTextSel:   { color: '#fff', fontWeight: '600' },
-  qtyRow:       { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  qtyInput:     { flex: 1, marginBottom: 0 },
-  finitoBtn:    { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
-  finitoBtnActive: { backgroundColor: '#c0392b' },
-  finitoText:   { fontSize: 14, fontWeight: '600', color: '#555' },
-  finitoTextActive: { color: '#fff' },
-});
