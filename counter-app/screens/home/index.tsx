@@ -54,6 +54,11 @@ export default function HomeScreen() {
   // confirm dialog
   const [confirm, setConfirm] = useState<Confirm>(null);
 
+  // filter
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [filterCategoria, setFilterCategoria]       = useState<string | null>(null);
+  const [filterQuantita, setFilterQuantita]         = useState<'tutti' | 'disponibili' | 'finiti'>('tutti');
+
   // add modal
   const [modalVisible, setModalVisible]       = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Disponibile | null>(null);
@@ -69,6 +74,19 @@ export default function HomeScreen() {
   const isCustom   = selectedProduct?.name === '__custom__';
   // id of the item currently being count-edited (only one at a time)
   const activeId   = Object.keys(pending).find(k => typeof pending[k] === 'number');
+
+  // filter derived
+  const hasFilter = filterCategoria !== null || filterQuantita !== 'tutti';
+  const categorieDisponibili = Array.from(
+    new Set(items.map(i => i.categoria).filter(Boolean))
+  ) as string[];
+  const visibleItems = items.filter(item => {
+    if (filterCategoria !== null && (item.categoria ?? '') !== filterCategoria) return false;
+    if (filterQuantita === 'disponibili' && item.count === 0) return false;
+    if (filterQuantita === 'finiti' && item.count !== 0) return false;
+    return true;
+  });
+  const resetFilter = () => { setFilterCategoria(null); setFilterQuantita('tutti'); };
 
   useEffect(() => { setHideNav(hasPending); }, [hasPending]);
 
@@ -332,9 +350,19 @@ export default function HomeScreen() {
         }
       </View>
 
-      <TouchableOpacity style={s.addBtn} onPress={openModal}>
-        <Text style={s.addBtnText}>+ Aggiungi elemento</Text>
-      </TouchableOpacity>
+      <View style={s.actionRow}>
+        <TouchableOpacity style={s.addBtn} onPress={openModal}>
+          <Text style={s.addBtnText}>+ Aggiungi elemento</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.filterBtn, hasFilter && s.filterBtnActive]}
+          onPress={() => setFilterModalVisible(true)}
+        >
+          <Text style={[s.filterBtnText, hasFilter && s.filterBtnTextActive]}>
+            {hasFilter ? 'Filtra •' : 'Filtra'}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── save error banner ── */}
       {saveError && (
@@ -351,8 +379,13 @@ export default function HomeScreen() {
         ref={listRef}
         extraData={pending}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[RED]} tintColor={RED} />}
-        data={sortItems(items)}
+        data={sortItems(visibleItems)}
         keyExtractor={item => item._id}
+        ListEmptyComponent={
+          <Text style={s.emptyText}>
+            {hasFilter ? 'Nessun elemento corrisponde al filtro.' : 'Nessun elemento.'}
+          </Text>
+        }
         renderItem={({ item }) => {
           const isDeleted = pending[item._id] === 'delete';
           const isDirty   = pending[item._id] !== undefined;
@@ -374,11 +407,6 @@ export default function HomeScreen() {
               <View style={s.cardBody}>
                 <View style={s.nameRow}>
                   <Text style={[s.name, isDeleted && s.nameDeleted]}>{item.name}</Text>
-                  {item.categoria && (
-                    <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
-                      <Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text>
-                    </View>
-                  )}
                   {isSoldOut && <View style={s.soldOutBadge}><Text style={s.soldOutText}>Finito</Text></View>}
                 </View>
                 {item.prodotti_legati && item.prodotti_legati.length > 0 && (
@@ -403,6 +431,11 @@ export default function HomeScreen() {
                   <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, +1)} disabled={isLocked}>
                     <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>+</Text>
                   </TouchableOpacity>
+                </View>
+              )}
+              {item.categoria && (
+                <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
+                  <Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text>
                 </View>
               )}
             </View>
@@ -544,6 +577,63 @@ export default function HomeScreen() {
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── filter modal ── */}
+      <Modal visible={filterModalVisible} transparent animationType="fade" onRequestClose={() => setFilterModalVisible(false)}>
+        <Pressable style={s.overlay} onPress={() => setFilterModalVisible(false)}>
+          <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
+            <Text style={s.dialogTitle}>Filtra</Text>
+
+            <Text style={s.label}>Categoria</Text>
+            <View style={s.catChipRow}>
+              <TouchableOpacity
+                style={[s.catChip, filterCategoria === null && { backgroundColor: RED, borderColor: RED }]}
+                onPress={() => setFilterCategoria(null)}
+              >
+                <Text style={[s.catChipText, filterCategoria === null && { color: '#fff', fontWeight: '600' }]}>Tutte</Text>
+              </TouchableOpacity>
+              {categorieDisponibili.map(cat => {
+                const c   = CAT_COLORS[cat] ?? DEFAULT_COLOR;
+                const sel = filterCategoria === cat;
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[s.catChip, { borderColor: c.border }, sel && { backgroundColor: c.bg }]}
+                    onPress={() => setFilterCategoria(sel ? null : cat)}
+                  >
+                    <Text style={[s.catChipText, { color: sel ? c.text : '#555' }, sel && { fontWeight: '600' }]}>{cat}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={s.label}>Quantità</Text>
+            <View style={s.catChipRow}>
+              {([['tutti', 'Tutti'], ['disponibili', 'Disponibili'], ['finiti', 'Finiti']] as const).map(([val, lbl]) => {
+                const sel = filterQuantita === val;
+                return (
+                  <TouchableOpacity
+                    key={val}
+                    style={[s.catChip, sel && { backgroundColor: RED, borderColor: RED }]}
+                    onPress={() => setFilterQuantita(val)}
+                  >
+                    <Text style={[s.catChipText, sel && { color: '#fff', fontWeight: '600' }]}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={s.dialogRow}>
+              <TouchableOpacity style={s.cancelBtn} onPress={resetFilter}>
+                <Text style={s.cancelText}>Azzera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.confirmBtn} onPress={() => setFilterModalVisible(false)}>
+                <Text style={s.confirmText}>Fatto</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
     </SafeAreaView>
