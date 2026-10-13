@@ -111,7 +111,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign(
       { id: account._id, username: account.username, ruolo: account.ruolo, permessi: account.permessi, nome: account.nome },
       JWT_SECRET,
-      { expiresIn: '12h' }
+      { expiresIn: '365d' }
     );
     res.json({ token, id: String(account._id), nome: account.nome, ruolo: account.ruolo, permessi: account.permessi });
   } catch (err) {
@@ -143,7 +143,7 @@ app.post('/api/auth/register', async (req, res) => {
     const token = jwt.sign(
       { id: result.insertedId, username, ruolo: 'staff', permessi: [], nome },
       JWT_SECRET,
-      { expiresIn: '12h' }
+      { expiresIn: '365d' }
     );
     res.status(201).json({ token, id: String(result.insertedId), nome, ruolo: 'dipendente', permessi: [] });
   } catch (err) {
