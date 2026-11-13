@@ -1,0 +1,19 @@
+// Palette condivisa delle schermate: carta calda + rosso Pizzium + verde "fatto".
+export const RED        = '#C1442E';
+export const RED_DEEP   = '#8E3318';
+export const RED_TINT   = '#F7DCD1';
+export const GREEN      = '#4C9A5B';
+export const GREEN_DEEP = '#2F6F3E';
+export const GREEN_CARD = '#F3FAF3';
+export const GREEN_LINE = '#CDE6CE';
+export const BLUE       = '#2F6690';
+export const BLUE_TINT  = '#E4EEF6';
+export const AMBER      = '#B45F06';
+export const AMBER_TINT = '#FDF1E3';
+export const AMBER_LINE = '#F0D9A8';
+export const GROUND     = '#FFFBF5';
+export const SURFACE    = '#FFFFFF';
+export const LINE       = '#F0E4D6';
+export const INK        = '#2B211C';
+export const INK_SOFT   = '#6B5C50';
+export const MUTED      = '#8F8076';

@@ -6,9 +6,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { PressScale, Pop, ColorFade, Enter, smoothLayout } from '@/components/motion';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch, apiUrl, authHeaders } from '@/utils/api';
-import { s, RED } from './segnalazioni.styles';
+import {
+  s, RED, RED_DEEP, GREEN_DEEP, GREEN_CARD, GREEN_LINE, INK_SOFT, MUTED, OPEN_CARD, OPEN_LINE,
+} from './segnalazioni.styles';
 
 type Confirm = { title: string; message: string; onConfirm: () => void; confirmLabel?: string; destructive?: boolean } | null;
 type Categoria    = { _id: string; nome: string; order: number };
@@ -35,6 +38,8 @@ export default function SegnalazioniScreen() {
   const [selectedCat, setSelectedCat]   = useState<string | null>(null);
   const [testo, setTesto]   = useState('');
   const [error, setError]   = useState<string | null>(null);
+  // Cascata d'ingresso solo all'apertura: le card montate dopo entrano subito.
+  const introUntil = useRef(0);
 
   useEffect(() => {
     if (!token) return;
@@ -56,10 +61,12 @@ export default function SegnalazioniScreen() {
     if (lastMessage.type === 'segnalazione_nuova') {
       const seg = lastMessage.segnalazione as any;
       const id  = String(seg._id);
+      smoothLayout();
       setList(prev => prev.find(s => s._id === id) ? prev : [{ ...seg, _id: id }, ...prev]);
     } else if (lastMessage.type === 'segnalazione_aggiornata') {
       setList(prev => prev.map(s => s._id === lastMessage.id ? { ...s, stato: lastMessage.stato as any } : s));
     } else if (lastMessage.type === 'segnalazione_rimossa') {
+      smoothLayout();
       setList(prev => prev.filter(s => s._id !== lastMessage.id));
     }
   }, [lastMessage]);
@@ -83,6 +90,7 @@ export default function SegnalazioniScreen() {
       .then(r => r.json())
       .then(newSeg => {
         const id = String(newSeg._id);
+        smoothLayout();
         setList(prev => prev.find(s => s._id === id) ? prev : [{ ...newSeg, _id: id }, ...prev]);
         setModalVisible(false);
       })
@@ -111,123 +119,192 @@ export default function SegnalazioniScreen() {
     confirmLabel: 'Elimina',
     destructive: true,
     onConfirm: () => {
+      smoothLayout();
       setList(prev => prev.filter(s => s._id !== id));
       apiFetch(apiUrl(`/api/segnalazioni/${id}/chiudi`), { method: 'PATCH', headers: hdrs() });
     },
   });
 
+  const aperte = list.filter(x => x.stato !== 'risolta').length;
+  const subtitle = loading
+    ? 'Avvisi per il team'
+    : aperte === 0 ? 'Nessuna aperta' : aperte === 1 ? '1 aperta' : `${aperte} aperte`;
+
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.container}>
       {/* Modale conferma */}
       <Modal transparent animationType="fade" visible={!!confirm} onRequestClose={() => setConfirm(null)}>
         <Pressable style={s.overlay} onPress={() => setConfirm(null)}>
+          <Enter style={s.dialogWrap} fromY={10} fromScale={0.94}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>{confirmRef.current?.title}</Text>
             <Text style={s.dialogMsg}>{confirmRef.current?.message}</Text>
-            <View style={s.dialogRow}>
-              <TouchableOpacity style={s.cancelBtn} onPress={() => setConfirm(null)}>
-                <Text style={s.cancelText}>Annulla</Text>
+            <View style={s.dialogBtns}>
+              <TouchableOpacity style={s.dialogCancel} onPress={() => setConfirm(null)}>
+                <Text style={s.dialogCancelLabel}>Annulla</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.confirmBtn, confirmRef.current?.destructive && s.destructiveBtn]}
+                style={confirmRef.current?.destructive ? s.dialogDanger : s.dialogConfirm}
                 onPress={() => { setConfirm(null); confirmRef.current?.onConfirm(); }}
               >
-                <Text style={s.confirmText}>{confirmRef.current?.confirmLabel ?? 'Conferma'}</Text>
+                <Text style={s.dialogConfirmLabel}>{confirmRef.current?.confirmLabel ?? 'Conferma'}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
+          </Enter>
         </Pressable>
       </Modal>
 
-      <View style={s.header}>
-        <Text style={s.title}>Segnalazioni</Text>
-        <TouchableOpacity style={s.addBtn} onPress={openModal}>
-          <Text style={s.addBtnText}>+ Nuova</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Header */}
+      <Enter style={s.header} fromY={-8}>
+        <View style={s.headerLeft}>
+          <View style={s.logo}>
+            <Ionicons name="warning" size={22} color="#fff" />
+          </View>
+          <View style={s.headerText}>
+            <Text style={s.title} numberOfLines={1}>Segnalazioni</Text>
+            <Pop trigger={aperte} amount={1.06}>
+              <Text style={s.subtitle}>{subtitle}</Text>
+            </Pop>
+          </View>
+        </View>
+        <PressScale style={s.addBtn} onPress={openModal} accessibilityRole="button" accessibilityLabel="Nuova segnalazione">
+          <Ionicons name="add" size={20} color="#fff" />
+          <Text style={s.addBtnText}>Nuova</Text>
+        </PressScale>
+      </Enter>
 
       {loading ? (
-        <ActivityIndicator size="large" color={RED} style={{ marginTop: 40 }} />
+        <View style={s.center}>
+          <ActivityIndicator size="large" color={RED} />
+          <Text style={s.hint}>Caricamento segnalazioni…</Text>
+        </View>
       ) : list.length === 0 ? (
-        <Text style={s.empty}>Nessuna segnalazione attiva.</Text>
+        <View style={s.center}>
+          <Enter bouncy fromY={0} fromScale={0.6} style={s.stateBadge}>
+            <Ionicons name="checkmark-done" size={34} color={GREEN_DEEP} />
+          </Enter>
+          <Enter delay={80}><Text style={s.stateTitle}>Tutto tranquillo</Text></Enter>
+          <Enter delay={140}>
+            <Text style={s.stateSubtitle}>Nessuna segnalazione attiva.{'\n'}Tocca «Nuova» per avvisare il team.</Text>
+          </Enter>
+        </View>
       ) : (
         <FlatList
           data={list}
           keyExtractor={i => i._id}
-          contentContainerStyle={{ padding: 16 }}
-          renderItem={({ item }) => {
-            const isCreator = item.autoreId === user?.id;
-            const risolta   = item.stato === 'risolta';
+          contentContainerStyle={s.list}
+          renderItem={({ item, index }) => {
+            if (introUntil.current === 0) introUntil.current = Date.now() + 500;
+            const enterDelay = Date.now() < introUntil.current ? 120 + Math.min(index, 8) * 50 : 0;
+            const isCreator  = item.autoreId === user?.id;
+            const risolta    = item.stato === 'risolta';
+            const canAct     = isAdmin || isCreator;
             return (
-              <View style={[s.card, risolta && s.cardRisolta]}>
+              <Enter delay={enterDelay}>
+              <ColorFade
+                style={s.card}
+                active={risolta}
+                off={{ bg: OPEN_CARD, border: OPEN_LINE }}
+                on={{ bg: GREEN_CARD, border: GREEN_LINE }}
+              >
                 <View style={s.cardHeader}>
-                  <View style={[s.badge, risolta ? s.badgeRisolta : s.badgeAperta]}>
-                    <Text style={s.badgeText}>{risolta ? 'Risolta' : 'Aperta'}</Text>
+                  <Pop trigger={risolta} style={[s.badge, risolta ? s.badgeRisolta : s.badgeAperta]}>
+                    <Ionicons name={risolta ? 'checkmark-circle' : 'alert-circle'} size={16} color={risolta ? '#fff' : RED_DEEP} />
+                    <Text style={[s.badgeText, risolta ? s.badgeTextRisolta : s.badgeTextAperta]}>
+                      {risolta ? 'Risolta' : 'Aperta'}
+                    </Text>
+                  </Pop>
+                  <View style={s.categoria}>
+                    <Text style={s.categoriaText}>{item.categoria}</Text>
                   </View>
-                  <Text style={s.categoria}>{item.categoria}</Text>
                 </View>
-                <Text style={s.testo}>{item.testo}</Text>
-                <Text style={s.autore}>— {item.autoreNome}</Text>
-                <View style={s.actions}>
-                  {(isAdmin || isCreator) && !risolta && (
-                    <TouchableOpacity style={s.btnRisolvi} onPress={() => risolvi(item._id)}>
-                      <Text style={s.btnText}>Segna come risolta</Text>
-                    </TouchableOpacity>
+
+                <Text style={[s.testo, risolta && s.testoRisolta]}>{item.testo}</Text>
+
+                <View style={s.footer}>
+                  <View style={s.autoreRow}>
+                    <Ionicons name="person" size={14} color={MUTED} />
+                    <Text style={s.autore} numberOfLines={1}>{item.autoreNome}</Text>
+                  </View>
+                  {canAct && !risolta && (
+                    <PressScale style={s.btnRisolvi} onPress={() => risolvi(item._id)} accessibilityRole="button" accessibilityLabel="Segna come risolta">
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={s.btnRisolviText}>Risolta</Text>
+                    </PressScale>
                   )}
-                  {(isCreator || isAdmin) && risolta && (
-                    <TouchableOpacity style={s.btnTrash} onPress={() => chiudi(item._id)}>
-                      <Ionicons name="trash-outline" size={18} color="#fff" />
-                    </TouchableOpacity>
+                  {canAct && risolta && (
+                    <PressScale
+                      style={s.btnTrash}
+                      scaleTo={0.9}
+                      onPress={() => chiudi(item._id)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Elimina segnalazione"
+                    >
+                      <Ionicons name="trash-outline" size={20} color={INK_SOFT} />
+                    </PressScale>
                   )}
                 </View>
-              </View>
+              </ColorFade>
+              </Enter>
             );
           }}
         />
       )}
 
       {/* Modale nuova segnalazione */}
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.overlay}>
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>Nuova segnalazione</Text>
+      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <Pressable style={s.overlay} onPress={() => setModalVisible(false)}>
+            <Enter style={s.formWrap} fromY={10} fromScale={0.94}>
+            <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
+              <Text style={s.dialogTitle}>Nuova segnalazione</Text>
 
-            <Text style={s.label}>Categoria</Text>
-            <View style={s.catList}>
-              {categorie.map(c => (
-                <TouchableOpacity
-                  key={String(c._id)}
-                  style={[s.catChip, selectedCat === c.nome && s.catChipSel]}
-                  onPress={() => setSelectedCat(c.nome)}
-                >
-                  <Text style={[s.catChipText, selectedCat === c.nome && s.catChipTextSel]}>{c.nome}</Text>
+              <Text style={s.label}>Categoria</Text>
+              <View style={s.catList}>
+                {categorie.map(c => {
+                  const sel = selectedCat === c.nome;
+                  return (
+                    <PressScale
+                      key={String(c._id)}
+                      style={[s.catChip, sel && s.catChipSel]}
+                      onPress={() => { setSelectedCat(c.nome); setError(null); }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: sel }}
+                    >
+                      <Text style={[s.catChipText, sel && s.catChipTextSel]}>{c.nome}</Text>
+                    </PressScale>
+                  );
+                })}
+              </View>
+
+              <Text style={s.label}>Descrizione</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Descrivi il problema…"
+                placeholderTextColor={MUTED}
+                value={testo}
+                onChangeText={setTesto}
+                multiline
+                numberOfLines={3}
+                accessibilityLabel="Descrizione"
+              />
+
+              {error && <Text style={s.errorText} accessibilityLiveRegion="polite">{error}</Text>}
+
+              <View style={s.dialogBtns}>
+                <TouchableOpacity style={s.dialogCancel} onPress={() => setModalVisible(false)}>
+                  <Text style={s.dialogCancelLabel}>Annulla</Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={s.label}>Descrizione</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Descrivi il problema..."
-              value={testo}
-              onChangeText={setTesto}
-              multiline
-              numberOfLines={3}
-            />
-
-            {error && <Text style={s.errorText}>{error}</Text>}
-
-            <View style={s.modalActions}>
-              <TouchableOpacity style={s.btnCancel} onPress={() => setModalVisible(false)}>
-                <Text style={s.btnCancelText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.btnSubmit, submitting && { opacity: 0.7 }]} onPress={submit} disabled={submitting}>
-                {submitting
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={s.btnText}>Invia</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
+                <TouchableOpacity style={[s.dialogDanger, submitting && { opacity: 0.6 }]} onPress={submit} disabled={submitting}>
+                  {submitting
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={s.dialogConfirmLabel}>Invia</Text>}
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+            </Enter>
+          </Pressable>
         </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>

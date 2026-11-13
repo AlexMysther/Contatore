@@ -2,8 +2,10 @@ import {
   View, Text, TouchableOpacity, FlatList, Modal, Pressable, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useChiusura } from '@/hooks/use-chiusura';
-import { RED, s } from './chiusura.styles';
+import { PressScale, Pop, ColorFade, ProgressFill, Enter, Pulse, smoothLayout } from '@/components/motion';
+import { RED, GREEN_DEEP, INK_SOFT, BLUE, RED_DEEP, SURFACE, LINE, GREEN_CARD, GREEN_LINE, s } from './chiusura.styles';
 
 export default function Chiusura() {
   const {
@@ -21,20 +23,30 @@ export default function Chiusura() {
     if (canEdit) {
       return (
         <SafeAreaView style={[s.container, s.center]}>
-          <Text style={s.startIcon}>🔒</Text>
-          <Text style={s.startTitle}>Chiusura</Text>
-          <Text style={s.startSubtitle}>Avvia la procedura di chiusura del locale.</Text>
-          <TouchableOpacity style={s.startBtn} onPress={avvia}>
-            <Text style={s.startBtnLabel}>Avvia Chiusura</Text>
-          </TouchableOpacity>
+          <Enter bouncy fromY={0} fromScale={0.6} style={s.stateBadge}>
+            <Ionicons name="lock-closed" size={32} color="#fff" />
+          </Enter>
+          <Enter delay={80}><Text style={s.startTitle}>Chiusura</Text></Enter>
+          <Enter delay={140}><Text style={s.startSubtitle}>Avvia la procedura di chiusura del locale.</Text></Enter>
+          <Enter delay={200}>
+            <PressScale style={s.startBtn} onPress={avvia} accessibilityRole="button">
+              <Text style={s.startBtnLabel}>Avvia chiusura</Text>
+            </PressScale>
+          </Enter>
         </SafeAreaView>
       );
     }
     return (
       <SafeAreaView style={[s.container, s.center]}>
-        <Text style={s.startIcon}>⏳</Text>
-        <Text style={s.startTitle}>In attesa</Text>
-        <Text style={s.startSubtitle}>La chiusura non è ancora stata avviata.{'\n'}Attendi che un amministratore la avvii.</Text>
+        <Enter bouncy fromY={0} fromScale={0.6}>
+          <Pulse style={[s.stateBadge, s.stateBadgeSoft]}>
+            <Ionicons name="hourglass-outline" size={32} color={RED} />
+          </Pulse>
+        </Enter>
+        <Enter delay={80}><Text style={s.startTitle}>In attesa</Text></Enter>
+        <Enter delay={140}>
+          <Text style={s.startSubtitle}>La chiusura non è ancora stata avviata.{'\n'}Attendi che un amministratore la avvii.</Text>
+        </Enter>
       </SafeAreaView>
     );
   }
@@ -51,21 +63,28 @@ export default function Chiusura() {
   if (error) {
     return (
       <SafeAreaView style={[s.container, s.center]}>
-        <Text style={s.startIcon}>⚠️</Text>
-        <Text style={s.startTitle}>Errore</Text>
-        <Text style={s.startSubtitle}>{error}</Text>
-        <TouchableOpacity style={s.startBtn} onPress={retry}>
-          <Text style={s.startBtnLabel}>Riprova</Text>
-        </TouchableOpacity>
+        <Enter bouncy fromY={0} fromScale={0.6} style={[s.stateBadge, s.stateBadgeSoft]}>
+          <Ionicons name="alert-circle-outline" size={34} color={RED} />
+        </Enter>
+        <Enter delay={80}><Text style={s.startTitle}>Qualcosa è andato storto</Text></Enter>
+        <Enter delay={140}><Text style={s.startSubtitle}>{error}</Text></Enter>
+        <Enter delay={200}>
+          <PressScale style={s.startBtn} onPress={retry} accessibilityRole="button">
+            <Text style={s.startBtnLabel}>Riprova</Text>
+          </PressScale>
+        </Enter>
       </SafeAreaView>
     );
   }
+
+  const allDone = total > 0 && doneCount === total;
 
   return (
     <SafeAreaView style={s.container}>
       {/* Modale conferma completamento */}
       <Modal transparent animationType="fade" visible={!!pending} onRequestClose={() => setPending(null)}>
         <Pressable style={s.overlay} onPress={() => setPending(null)}>
+          <Enter style={s.dialogWrap} fromY={10} fromScale={0.94}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Conferma</Text>
             <Text style={s.dialogMsg}>Hai completato "{pending?.titolo}"?</Text>
@@ -78,12 +97,14 @@ export default function Chiusura() {
               </TouchableOpacity>
             </View>
           </Pressable>
+          </Enter>
         </Pressable>
       </Modal>
 
       {/* Modale assegnazione */}
       <Modal transparent animationType="fade" visible={!!assignPending} onRequestClose={() => setAssignPending(null)}>
         <Pressable style={s.overlay} onPress={() => setAssignPending(null)}>
+          <Enter style={s.dialogWrap} fromY={10} fromScale={0.94}>
           <Pressable style={s.assignDialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Assegna a…</Text>
             {assignPending && (
@@ -99,12 +120,14 @@ export default function Chiusura() {
               </>
             )}
           </Pressable>
+          </Enter>
         </Pressable>
       </Modal>
 
       {/* Modale azzera */}
       <Modal transparent animationType="fade" visible={confirmReset} onRequestClose={closeResetModal}>
         <Pressable style={s.overlay} onPress={closeResetModal}>
+          <Enter style={s.dialogWrap} fromY={10} fromScale={0.94}>
           <Pressable style={s.dialog} onPress={e => e.stopPropagation()}>
             <Text style={s.dialogTitle}>Azzera i task?</Text>
             <Text style={s.dialogMsg}>Tutti i task verranno segnati come non completati.</Text>
@@ -117,96 +140,147 @@ export default function Chiusura() {
               </TouchableOpacity>
             </View>
           </Pressable>
+          </Enter>
         </Pressable>
       </Modal>
 
       {/* Header */}
-      <View style={s.header}>
-        <Text style={s.title}>🔒 Chiusura</Text>
-        {canEdit && (
-          <TouchableOpacity style={s.resetBtn} onPress={() => setConfirmReset(true)}>
-            <Text style={s.resetBtnLabel}>Azzera</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Barra progresso */}
-      <View style={s.progressWrap}>
-        <View style={s.progressBg}>
-          <View style={[s.progressFill, { width: `${progress * 100}%` as any }]} />
+      <Enter style={s.header} fromY={-8}>
+        <View style={s.headerLeft}>
+          <View style={s.logo}>
+            <Ionicons name="lock-closed" size={22} color="#fff" />
+          </View>
+          <View>
+            <Text style={s.title}>Chiusura</Text>
+            <Text style={s.subtitle}>Checklist di fine turno</Text>
+          </View>
         </View>
-        <Text style={s.progressLabel}>{doneCount}/{total}</Text>
-      </View>
+        {canEdit && (
+          <PressScale style={s.resetBtn} onPress={() => setConfirmReset(true)} accessibilityRole="button">
+            <Ionicons name="refresh" size={16} color={INK_SOFT} />
+            <Text style={s.resetBtnLabel}>Azzera</Text>
+          </PressScale>
+        )}
+      </Enter>
+
+      {/* Progresso */}
+      <Enter style={s.progressWrap} delay={60}>
+        <View style={s.progressTop}>
+          <Pop trigger={allDone} amount={1.08}>
+            <Text style={s.progressText}>
+              {allDone ? 'Tutto pronto!' : total - doneCount === 1 ? 'Manca 1 attività' : `Mancano ${total - doneCount} attività`}
+            </Text>
+          </Pop>
+          <Pop trigger={doneCount}>
+            <Text style={[s.progressCount, allDone && s.progressCountDone]}>
+              {doneCount}<Text style={s.progressTotal}>/{total}</Text>
+            </Text>
+          </Pop>
+        </View>
+        <View style={s.progressBg}>
+          <ProgressFill progress={progress} style={s.progressFill} />
+        </View>
+      </Enter>
 
       <FlatList
         data={chores}
         keyExtractor={c => c._id}
         contentContainerStyle={s.list}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const sottoTask  = item.sotto_task ?? [];
           const hasSotto   = sottoTask.length > 0;
           const sottoFatti = sottoTask.filter(st => st.completato).length;
+          const sottoAll   = hasSotto && sottoFatti === sottoTask.length;
           const acc        = item.assegnato_a ? accounts.find(a => a.nome === item.assegnato_a) : null;
-          const badgeStyle = !item.assegnato_a ? s.badgeRed : acc?.ruolo === 'admin' ? s.badgeBlue : s.badgeGreen;
-          const assignLabel = item.assegnato_a ? `👤 ${item.assegnato_a}` : canEdit ? '👤 Assegna…' : '👤 Nessuno';
+          const isAdmin    = acc?.ruolo === 'admin';
+          const pillStyle  = !item.assegnato_a ? s.pillNone : isAdmin ? s.pillAdmin : s.pillUser;
+          const pillText   = !item.assegnato_a ? s.pillNoneText : isAdmin ? s.pillAdminText : s.pillUserText;
+          const pillColor  = !item.assegnato_a ? RED_DEEP : isAdmin ? BLUE : GREEN_DEEP;
+          const assignLabel = item.assegnato_a ?? (canEdit ? 'Assegna' : 'Nessuno');
+
+          const pill = (
+            <View style={[s.assignPill, pillStyle]}>
+              <Ionicons name="person" size={14} color={pillColor} />
+              <Text style={[s.assignPillText, pillText]}>{assignLabel}</Text>
+            </View>
+          );
 
           return (
-            <View style={[s.card, item.completato && s.cardDone]}>
+            <Enter delay={120 + Math.min(index, 8) * 50}>
+            <ColorFade
+              style={s.card}
+              active={!!item.completato}
+              off={{ bg: SURFACE, border: LINE }}
+              on={{ bg: GREEN_CARD, border: GREEN_LINE }}
+            >
               <View style={s.cardRow}>
-                <TouchableOpacity
+                <PressScale
                   onPress={() => tapChore(item._id, item.titolo, item.completato)}
-                  activeOpacity={0.7}
+                  scaleTo={0.88}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: item.completato }}
+                  accessibilityLabel={item.titolo}
                 >
-                  <View style={[s.check, item.completato && s.checkDone]}>
-                    {item.completato && <Text style={s.checkMark}>✓</Text>}
-                  </View>
-                </TouchableOpacity>
+                  <Pop trigger={!!item.completato} style={[s.check, item.completato && s.checkDone]}>
+                    {item.completato && <Ionicons name="checkmark" size={18} color="#fff" />}
+                  </Pop>
+                </PressScale>
 
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text style={[s.label, item.completato && s.labelDone]}>{item.titolo}</Text>
-                  {item.descrizione ? <Text style={[s.desc, item.completato && s.descDone]}>{item.descrizione}</Text> : null}
+                <View style={s.cardBody}>
+                  <View style={s.cardTop}>
+                    <Text style={[s.label, item.completato && s.labelDone]}>{item.titolo}</Text>
+                    {hasSotto && (
+                      <TouchableOpacity
+                        onPress={() => { smoothLayout(); toggleExpand(item._id); }}
+                        style={s.expandBtn}
+                        accessibilityLabel={item._expanded ? 'Nascondi sotto-attività' : 'Mostra sotto-attività'}
+                      >
+                        <Ionicons name={item._expanded ? 'chevron-up' : 'chevron-down'} size={20} color={INK_SOFT} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {item.descrizione ? <Text style={s.desc}>{item.descrizione}</Text> : null}
+
                   <View style={s.meta}>
                     {canEdit ? (
-                      <TouchableOpacity onPress={() => setAssignPending({ choreId: item._id })}>
-                        <Text style={[s.badge, badgeStyle]}>{assignLabel}</Text>
+                      <TouchableOpacity onPress={() => setAssignPending({ choreId: item._id })} accessibilityRole="button">
+                        {pill}
                       </TouchableOpacity>
-                    ) : (
-                      <Text style={[s.badge, badgeStyle]}>{assignLabel}</Text>
+                    ) : pill}
+                    {hasSotto && (
+                      <Pop trigger={sottoFatti} style={[s.counter, sottoAll && s.counterDone]}>
+                        <Text style={[s.counterText, sottoAll && s.counterTextDone]}>{sottoFatti}/{sottoTask.length}</Text>
+                      </Pop>
                     )}
-                    {hasSotto && <Text style={s.badge}>📋 {sottoFatti}/{sottoTask.length}</Text>}
                   </View>
                 </View>
-
-                {hasSotto && (
-                  <TouchableOpacity onPress={() => toggleExpand(item._id)} style={s.expandBtn}>
-                    <Text style={s.expandIcon}>{item._expanded ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
               {hasSotto && item._expanded && (
                 <View style={s.sottoList}>
                   {sottoTask.map((st, idx) => (
-                    <View key={idx} style={s.sottoRow}>
-                      <TouchableOpacity
-                        onPress={() => tapSotto(item._id, idx, st.titolo, st.completato)}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <View style={[s.sottoCheck, st.completato && s.sottoCheckDone]}>
-                          {st.completato && <Text style={s.sottoMark}>✓</Text>}
-                        </View>
-                      </TouchableOpacity>
+                    <TouchableOpacity
+                      key={idx}
+                      style={s.sottoRow}
+                      onPress={() => tapSotto(item._id, idx, st.titolo, st.completato)}
+                      activeOpacity={0.7}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: st.completato }}
+                    >
+                      <Pop trigger={!!st.completato} style={[s.sottoCheck, st.completato && s.sottoCheckDone]}>
+                        {st.completato && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </Pop>
                       <View style={{ flex: 1 }}>
                         <Text style={[s.sottoLabel, st.completato && s.labelDone]}>{st.titolo}</Text>
-                        {st.descrizione ? <Text style={[s.desc, st.completato && s.descDone]}>{st.descrizione}</Text> : null}
+                        {st.descrizione ? <Text style={s.desc}>{st.descrizione}</Text> : null}
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
-            </View>
+            </ColorFade>
+            </Enter>
           );
         }}
       />
