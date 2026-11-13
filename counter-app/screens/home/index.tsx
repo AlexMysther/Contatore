@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing } from 'react-native';
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, Modal, Pressable,
@@ -6,12 +7,17 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { RED_DEEP, MUTED } from '@/constants/palette';
+import { PressScale, Pop, Enter, EnterUp, smoothLayout } from '@/components/motion';
 import { useAuth } from '@/context/AuthContext';
 import { useNav } from '@/context/NavContext';
 import { apiFetch, apiUrl, authHeaders } from '@/utils/api';
 import { RED, CAT_COLORS, DEFAULT_COLOR, s } from './index.styles';
 
-const BANNER_IMAGE = require('@/assets/custom/Logo-pizzium-ROSSO-01-3.png');
+// Versione rifilata del logo: l'originale 2048×2048 ha ampi margini trasparenti
+// che lo facevano apparire minuscolo.
+const BANNER_IMAGE = require('@/assets/custom/pizzium-wordmark.png');
 
 type Item        = { _id: string; name: string; count: number; categoria?: string | null; prodotti_legati?: string[] };
 type Disponibile = { _id: string; name: string; categoria: string; prodotti_legati?: string[] };
@@ -28,6 +34,29 @@ function sortItems(list: Item[]): Item[] {
   });
 }
 
+// Expands/collapses the "+n / −n" line smoothly so the card grows instead of jumping.
+function DiffNote({ diff, original }: { diff: number; original: number }) {
+  const anim = useRef(new Animated.Value(diff !== 0 ? 1 : 0)).current;
+  const last = useRef(diff);
+  if (diff !== 0) last.current = diff;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: diff !== 0 ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [diff !== 0]);
+  const d = last.current;
+  return (
+    <Animated.View style={{ height: anim.interpolate({ inputRange: [0, 1], outputRange: [0, 18] }), opacity: anim, overflow: 'hidden' }}>
+      <Text numberOfLines={1} style={[s.diff, d > 0 ? s.diffPos : s.diffNeg]}>
+        {d > 0 ? `+${d}` : `−${Math.abs(d)}`} (era {original})
+      </Text>
+    </Animated.View>
+  );
+}
+
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
@@ -36,6 +65,9 @@ export default function HomeScreen() {
   const token  = user?.token ?? '';
   const hdrs   = () => authHeaders(token);
   const listRef = useRef<FlatList<Item>>(null);
+  // Cascata d'ingresso solo all'apertura: le card montate dopo (scroll, nuovi
+  // elementi) entrano subito, senza ritardo.
+  const introUntil = useRef(0);
 
   // data
   const [items, setItems]             = useState<Item[]>([]);
@@ -214,14 +246,14 @@ export default function HomeScreen() {
   };
 
   // toggling ✕ on an already-deleted item cancels the deletion
-  const remove = (id: string) => setPending(prev => {
+  const remove = (id: string) => { smoothLayout(); setPending(prev => {
     if (prev[id] === 'delete') {
       const next = { ...prev };
       delete next[id];
       return next;
     }
     return { ...prev, [id]: 'delete' };
-  });
+  }); };
 
   // ─── commit / discard ──────────────────────────────────────────────────────
 
@@ -253,6 +285,7 @@ export default function HomeScreen() {
         );
 
         const failedIds: string[] = [];
+        smoothLayout();
         results.forEach((result, i) => {
           const [id, val] = entries[i];
           if (result.status === 'fulfilled') {
@@ -339,7 +372,10 @@ export default function HomeScreen() {
         </Pressable>
       </Modal>
 
-      <Image source={BANNER_IMAGE} style={s.banner} resizeMode="cover" />
+      <Enter style={s.logoWrap} bouncy fromY={-18} fromScale={0.7}>
+        <Image source={BANNER_IMAGE} style={s.logo} resizeMode="contain" accessibilityLabel="Pizzium" />
+      </Enter>
+      <Enter delay={120} fromY={10}>
       <View style={s.titleRow}>
         <Text style={s.title}>{user?.nome ?? 'Ciao!'}</Text>
         {user?.avatarUrl
@@ -349,27 +385,31 @@ export default function HomeScreen() {
             </View>
         }
       </View>
+      </Enter>
 
-      <View style={s.actionRow}>
-        <TouchableOpacity style={s.addBtn} onPress={openModal}>
-          <Text style={s.addBtnText}>+ Aggiungi elemento</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+      <Enter delay={200} fromY={10} style={s.actionRow}>
+        <PressScale style={s.addBtn} onPress={openModal} accessibilityRole="button">
+          <Ionicons name="add" size={22} color="#fff" />
+          <Text style={s.addBtnText}>Aggiungi elemento</Text>
+        </PressScale>
+        <PressScale
           style={[s.filterBtn, hasFilter && s.filterBtnActive]}
           onPress={() => setFilterModalVisible(true)}
+          accessibilityRole="button"
         >
+          <Ionicons name="funnel-outline" size={18} color={hasFilter ? RED_DEEP : '#2B211C'} />
           <Text style={[s.filterBtnText, hasFilter && s.filterBtnTextActive]}>
             {hasFilter ? 'Filtra •' : 'Filtra'}
           </Text>
-        </TouchableOpacity>
-      </View>
+        </PressScale>
+      </Enter>
 
       {/* ── save error banner ── */}
       {saveError && (
         <View style={s.saveErrorBanner}>
           <Text style={s.saveErrorText}>{saveError}</Text>
-          <TouchableOpacity onPress={() => setSaveError(null)}>
-            <Text style={s.saveErrorDismiss}>✕</Text>
+          <TouchableOpacity onPress={() => setSaveError(null)} style={s.saveErrorDismiss} accessibilityLabel="Chiudi avviso">
+            <Ionicons name="close" size={20} color={RED_DEEP} />
           </TouchableOpacity>
         </View>
       )}
@@ -386,7 +426,9 @@ export default function HomeScreen() {
             {hasFilter ? 'Nessun elemento corrisponde al filtro.' : 'Nessun elemento.'}
           </Text>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
+          if (introUntil.current === 0) introUntil.current = Date.now() + 500;
+          const enterDelay = Date.now() < introUntil.current ? 260 + Math.min(index, 8) * 45 : 0;
           const isDeleted = pending[item._id] === 'delete';
           const isDirty   = pending[item._id] !== undefined;
           const diff      = isDirty && !isDeleted ? (displayCount(item) - item.count) : 0;
@@ -394,60 +436,61 @@ export default function HomeScreen() {
           const isLocked  = !!activeId && activeId !== item._id;
           const c = CAT_COLORS[item.categoria ?? ''] ?? DEFAULT_COLOR;
           return (
+            <Enter delay={enterDelay} fromY={16}>
             <View style={[
               s.card,
-              !isDeleted && { backgroundColor: c.bg, borderWidth: 1.5, borderColor: c.text },
+              !isDeleted && { backgroundColor: c.bg, borderColor: c.border },
               isDeleted && s.cardDeleted,
               isDirty && !isDeleted && s.cardDirty,
               isLocked && s.cardLocked,
             ]}>
-              <TouchableOpacity onPress={() => remove(item._id)} disabled={isLocked}>
-                <Text style={[s.del, isDeleted && s.delActive]}>✕</Text>
+              <TouchableOpacity
+                onPress={() => remove(item._id)}
+                disabled={isLocked}
+                style={s.del}
+                accessibilityLabel={isDeleted ? `Annulla eliminazione di ${item.name}` : `Elimina ${item.name}`}
+              >
+                <Ionicons name={isDeleted ? 'arrow-undo' : 'close'} size={20} color={isDeleted ? RED : '#B8AA9D'} />
               </TouchableOpacity>
               <View style={s.cardBody}>
                 <View style={s.nameRow}>
                   <Text style={[s.name, isDeleted && s.nameDeleted]}>{item.name}</Text>
                   {isSoldOut && <View style={s.soldOutBadge}><Text style={s.soldOutText}>Finito</Text></View>}
                 </View>
+                {item.categoria && <Text style={[s.catLabel, { color: c.text }]}>{item.categoria}</Text>}
                 {item.prodotti_legati && item.prodotti_legati.length > 0 && (
                   <View style={s.legatiBox}>
                     {item.prodotti_legati.map(p => <Text key={p} style={s.legatiItem}>• {p}</Text>)}
                   </View>
                 )}
-                {diff !== 0 && (
-                  <Text style={[s.diff, diff > 0 ? s.diffPos : s.diffNeg]}>
-                    {diff > 0 ? `+${diff}` : `${diff}`} rispetto all'originale ({item.count})
-                  </Text>
-                )}
+                <DiffNote diff={diff} original={item.count} />
               </View>
               {isDeleted ? (
                 <Text style={s.deletedLabel}>Da eliminare</Text>
               ) : !isSoldOut && (
                 <View style={s.counter}>
-                  <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, -1)} disabled={isLocked}>
+                  <PressScale scaleTo={0.9} style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, -1)} disabled={isLocked} accessibilityLabel={`Diminuisci ${item.name}`}>
                     <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={s.count}>{displayCount(item)}</Text>
-                  <TouchableOpacity style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, +1)} disabled={isLocked}>
+                  </PressScale>
+                  <Pop trigger={displayCount(item)} amount={1.22}>
+                    <Text style={s.count}>{displayCount(item)}</Text>
+                  </Pop>
+                  <PressScale scaleTo={0.9} style={[s.btn, isLocked && s.btnDisabled]} onPress={() => change(item._id, +1)} disabled={isLocked} accessibilityLabel={`Aumenta ${item.name}`}>
                     <Text style={[s.btnText, isLocked && s.btnTextDisabled]}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              {item.categoria && (
-                <View style={[s.catBadge, { backgroundColor: c.bg, borderColor: c.border }]}>
-                  <Text style={[s.catBadgeText, { color: c.text }]}>{item.categoria}</Text>
+                  </PressScale>
                 </View>
               )}
             </View>
+            </Enter>
           );
         }}
       />
 
       {/* ── bottom action bar ── */}
       {hasPending && (
-        <View style={s.bar}>
+        <EnterUp style={s.bar}>
           <TouchableOpacity style={s.discardBtn} onPress={discardChanges} disabled={saving}>
-            <Text style={[s.discardText, saving && { color: '#bbb' }]}>Scarta</Text>
+            <Text style={[s.discardText, saving && { color: MUTED }]}>Scarta</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.commitBtn} onPress={commitChanges} disabled={saving}>
             {saving
@@ -455,7 +498,7 @@ export default function HomeScreen() {
               : <Text style={s.commitText}>Invia modifiche</Text>
             }
           </TouchableOpacity>
-        </View>
+        </EnterUp>
       )}
 
       {/* ── add product modal ── */}
@@ -514,7 +557,7 @@ export default function HomeScreen() {
                   style={[s.productItem, isCustom && s.productItemSelected]}
                   onPress={() => setSelectedProduct({ _id: '__custom__', name: '__custom__', categoria: '' })}
                 >
-                  <Text style={[s.productItemText, isCustom && s.productItemTextSelected]}>✏️ Personalizzato</Text>
+                  <Text style={[s.productItemText, isCustom && s.productItemTextSelected]}>Personalizzato…</Text>
                 </TouchableOpacity>
               </ScrollView>
 
